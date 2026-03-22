@@ -383,7 +383,7 @@
                         <div id="sl-stats" class="sl-stats-grid"></div>
                         <div id="sl-content" style="margin-top:16px;">
                             <div style="text-align:center; padding:60px 20px; color:#9ca3af;">
-                                <i data-lucide="loader" class="sl-loader-icon"></i>
+                                <div class="spinner lg" style="margin:0 auto;" role="status" aria-label="Loading"></div>
                                 <p style="margin-top:12px;">Building your smart list...</p>
                             </div>
                         </div>
@@ -407,8 +407,12 @@
                             </button>
                         </div>
 
-                        <div id="sm-controls" style="position:absolute; top:80px; left:16px; z-index:10; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-radius:12px; padding:16px; box-shadow:0 2px 12px rgba(0,0,0,0.08); width:200px; max-height:calc(85vh - 120px); overflow-y:auto;">
-                            <strong style="font-size:0.95em;">View</strong>
+                        <div id="sm-left-wrapper" style="position:absolute; top:80px; left:16px; z-index:10; transition:transform 0.3s ease, opacity 0.3s ease;">
+                        <div id="sm-controls" style="background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-radius:12px; padding:16px; box-shadow:0 2px 12px rgba(0,0,0,0.08); width:200px; max-height:calc(85vh - 120px); overflow-y:auto;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <strong style="font-size:0.95em;">View</strong>
+                                <button type="button" onclick="window.toggleSMPanel && window.toggleSMPanel('left')" style="width:24px; height:24px; border:none; background:rgba(0,0,0,0.05); border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; color:#6b7280;" title="Collapse panel">◀</button>
+                            </div>
                             <label style="display:flex; align-items:center; gap:8px; margin:8px 0; font-size:0.9em; cursor:pointer;">
                                 <input type="checkbox" id="sm-show-route" checked> Show route
                             </label>
@@ -429,16 +433,26 @@
                             </div>
                             <button type="button" onclick="window.resetSupermarketView && window.resetSupermarketView()" style="margin-top:12px; padding:6px 16px; border:1px solid #d3e0d4; border-radius:8px; background:white; cursor:pointer; font-size:0.85em; font-family:'Outfit',sans-serif;">Reset view</button>
                         </div>
+                        </div>
 
-                        <div style="position:absolute; top:80px; right:16px; z-index:10; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-radius:12px; padding:16px; box-shadow:0 2px 12px rgba(0,0,0,0.08); width:220px;">
-                            <strong style="font-size:0.95em;">Find my items</strong>
+                        <button type="button" id="sm-left-expand" onclick="window.toggleSMPanel && window.toggleSMPanel('left')" style="display:none; position:absolute; top:80px; left:0; z-index:10; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border:none; border-radius:0 8px 8px 0; padding:14px 8px; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,0.1); font-family:'Outfit',sans-serif; font-size:0.8em; font-weight:600; color:#4f772d; writing-mode:vertical-lr; letter-spacing:1px;">▶ View</button>
+
+                        <div id="sm-right-wrapper" style="position:absolute; top:80px; right:16px; z-index:10; transition:transform 0.3s ease, opacity 0.3s ease;">
+                        <div style="background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-radius:12px; padding:16px; box-shadow:0 2px 12px rgba(0,0,0,0.08); width:220px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <strong style="font-size:0.95em;">Find my items</strong>
+                                <button type="button" onclick="window.toggleSMPanel && window.toggleSMPanel('right')" style="width:24px; height:24px; border:none; background:rgba(0,0,0,0.05); border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; color:#6b7280;" title="Collapse panel">▶</button>
+                            </div>
                             <select id="sm-item-source" style="width:100%; margin:10px 0; padding:8px; border:1px solid #d3e0d4; border-radius:8px; font-family:'Outfit',sans-serif; font-size:0.9em;">
+                                <option value="custom" selected>Custom list</option>
                                 <option value="latest">From latest receipt</option>
-                                <option value="custom">Custom list</option>
                             </select>
                             <div id="sm-item-checklist" style="max-height:200px; overflow-y:auto; margin-bottom:10px;"></div>
                             <button type="button" id="sm-generate-route" style="width:100%; padding:10px; background:#4f772d; color:white; border:none; border-radius:8px; cursor:pointer; font-family:'Outfit',sans-serif; font-weight:600;">Generate route</button>
                         </div>
+                        </div>
+
+                        <button type="button" id="sm-right-expand" onclick="window.toggleSMPanel && window.toggleSMPanel('right')" style="display:none; position:absolute; top:80px; right:0; z-index:10; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border:none; border-radius:8px 0 0 8px; padding:14px 8px; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,0.1); font-family:'Outfit',sans-serif; font-size:0.8em; font-weight:600; color:#4f772d; writing-mode:vertical-lr; letter-spacing:1px;">◀ Items</button>
 
                         <div id="sm-product-popup" style="display:none; position:absolute; z-index:20; background:rgba(255,255,255,0.95); backdrop-filter:blur(8px); border-radius:12px; padding:16px; box-shadow:0 4px 20px rgba(0,0,0,0.15); width:260px; pointer-events:auto;"></div>
                     </div>
@@ -462,14 +476,7 @@
                     </div>
 
                     {# Parsed receipt UI (items, brands, swap recommendations) is rendered into #ai-feedback by static/app.js #}
-                    <div id="ai-feedback" class="mt-4" style="display: none; max-width: 600px; margin: 1rem auto;">
-                        <div class="processing-container pulse">
-                            <div style="display: flex; gap: 1rem; align-items: center;">
-                                <i data-lucide="loader" class="pulse"></i>
-                                <p class="text-sm font-bold">AI Analyzing your receipt...</p>
-                            </div>
-                        </div>
-                    </div>
+                    <div id="ai-feedback" class="mt-4" style="display: none; max-width: 600px; margin: 1rem auto;"></div>
                 </section>
 
                 <!-- Full History View (list + detail loaded via /api/history) -->
@@ -554,7 +561,7 @@
 
                 <div class="chat-container" id="chat-scroller">
                     <div id="chat-messages"></div>
-                    <div class="chat-message message-ai chat-suggestions-block" id="chat-suggestions-block">
+                    <div class="chat-message message-ai chat-suggestions-block" id="chat-suggestions">
                         <p class="text-xs font-bold" style="margin-bottom: 8px;">Try asking:</p>
                         <div class="chat-suggestion-chips">
                             <button type="button" class="chat-suggestion-chip" data-prompt="What's my biggest carbon impact?">What's my biggest carbon impact?</button>

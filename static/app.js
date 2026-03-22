@@ -32,42 +32,134 @@ function setDashboardLoading(loading) {
     }
 }
 
-function renderUploadFeedbackShell(activeStep) {
-    const feedback = document.getElementById('ai-feedback');
-    if (!feedback) return;
+function showUploadProgress(container) {
+    if (!container) {
+        return {
+            complete() {},
+            cancel() {},
+        };
+    }
     const steps = [
-        { id: 'uploading', label: 'Uploading' },
-        { id: 'analyzing', label: 'Analyzing' },
-        { id: 'processing', label: 'Processing' },
-        { id: 'done', label: 'Done' },
+        { label: 'Uploading receipt', icon: '📤', duration: 800 },
+        { label: 'AI reading your receipt', icon: '🔍', duration: 2500 },
+        { label: 'Identifying items & brands', icon: '🏷️', duration: 2000 },
+        { label: 'Calculating carbon footprint', icon: '🌍', duration: 1500 },
+        { label: 'Preparing your results', icon: '✨', duration: 800 },
     ];
-    const activeIdx = Math.max(
-        0,
-        steps.findIndex((s) => s.id === activeStep)
-    );
-    const stepHtml = steps
-        .map((s, i) => {
-            let cls = 'upload-step';
-            if (i === activeIdx) cls += ' upload-step--active';
-            if (i < activeIdx) cls += ' upload-step--done';
-            const pulse = i === activeIdx && activeStep !== 'done' ? ' pulse' : '';
-            const mark = i < activeIdx ? '✓' : i === activeIdx ? '●' : '○';
-            return `<div class="${cls}"><span class="upload-step-icon${pulse}">${mark}</span>${escapeHtml(
-                s.label
-            )}</div>`;
-        })
-        .join('');
-    feedback.innerHTML = `
-        <div class="card" style="padding: 1.25rem;">
-            <div class="upload-feedback-steps">${stepHtml}</div>
-            <div class="processing-container pulse" style="margin-top: 0.75rem;">
-                <div style="display: flex; gap: 1rem; align-items: center;">
-                    <i data-lucide="loader" class="pulse"></i>
-                    <p class="text-sm font-bold">EcoCart AI is working on your receipt…</p>
-                </div>
+
+    container.innerHTML = `
+        <div class="card" style="padding:32px 24px; text-align:center;">
+            <div style="margin-bottom:24px;">
+                <div class="upload-spinner" role="status" aria-label="Loading"></div>
+            </div>
+            <div id="upload-step-label" style="font-family:'Outfit',sans-serif; font-size:1.1em; font-weight:600; color:#132a13; margin-bottom:8px;">
+                ${steps[0].icon} ${escapeHtml(steps[0].label)}…
+            </div>
+            <div id="upload-step-subtext" style="font-size:0.85em; color:#9ca3af; margin-bottom:24px;">
+                This usually takes 5-10 seconds
+            </div>
+            <div style="background:#e8e3d8; border-radius:8px; height:8px; width:100%; max-width:360px; margin:0 auto 20px; overflow:hidden;">
+                <div id="upload-progress-bar" style="background:linear-gradient(90deg, #4f772d, #90a955); height:100%; border-radius:8px; width:0%; transition:width 0.5s ease;"></div>
+            </div>
+            <div id="upload-steps" style="display:flex; justify-content:center; gap:6px; margin-top:16px; flex-wrap:wrap;">
+                ${steps
+                    .map(
+                        (s, i) =>
+                            `<div class="upload-step-dot" data-step="${i}" style="width:10px; height:10px; border-radius:50%; background:#d3e0d4; transition:background 0.3s, transform 0.3s;" title="${escapeHtml(
+                                s.label
+                            )}"></div>`
+                    )
+                    .join('')}
             </div>
         </div>`;
-    if (window.lucide) window.lucide.createIcons();
+
+    container.style.display = 'block';
+
+    let currentStep = 0;
+    let progressCancelled = false;
+
+    function advanceStep() {
+        if (progressCancelled) return;
+        if (currentStep >= steps.length) return;
+
+        const step = steps[currentStep];
+        const label = document.getElementById('upload-step-label');
+        const bar = document.getElementById('upload-progress-bar');
+        const subtext = document.getElementById('upload-step-subtext');
+        const dots = container.querySelectorAll('.upload-step-dot');
+
+        if (label) label.innerHTML = `${step.icon} ${escapeHtml(step.label)}…`;
+
+        if (subtext) {
+            const subtexts = [
+                'Sending your image securely…',
+                'Gemini AI is scanning every line…',
+                'Matching products to real brands…',
+                'Looking up emission factors for each item…',
+                'Almost there!',
+            ];
+            subtext.textContent = subtexts[currentStep] || '';
+        }
+
+        const progress = Math.round(((currentStep + 1) / steps.length) * 100);
+        if (bar) bar.style.width = `${progress}%`;
+
+        dots.forEach((dot, i) => {
+            if (i < currentStep) {
+                dot.style.background = '#4f772d';
+                dot.style.transform = 'scale(1)';
+            } else if (i === currentStep) {
+                dot.style.background = '#90a955';
+                dot.style.transform = 'scale(1.4)';
+            } else {
+                dot.style.background = '#d3e0d4';
+                dot.style.transform = 'scale(1)';
+            }
+        });
+
+        currentStep += 1;
+
+        if (currentStep < steps.length) {
+            setTimeout(advanceStep, step.duration);
+        }
+    }
+
+    advanceStep();
+
+    return {
+        complete() {
+            progressCancelled = true;
+            const bar = document.getElementById('upload-progress-bar');
+            const label = document.getElementById('upload-step-label');
+            const subtext = document.getElementById('upload-step-subtext');
+            const dots = container.querySelectorAll('.upload-step-dot');
+
+            if (bar) bar.style.width = '100%';
+            if (label) label.innerHTML = '✅ Analysis complete!';
+            if (subtext) subtext.textContent = '';
+            dots.forEach((dot) => {
+                dot.style.background = '#4f772d';
+                dot.style.transform = 'scale(1)';
+            });
+        },
+        cancel() {
+            progressCancelled = true;
+        },
+    };
+}
+
+function renderUploadErrorFeedback(message) {
+    const feedback = document.getElementById('ai-feedback');
+    if (!feedback) return;
+    const msg = message || 'Something went wrong. Please try again.';
+    feedback.style.display = 'block';
+    feedback.innerHTML = `
+        <div class="card" style="padding:24px; text-align:center;">
+            <div style="font-size:2em; margin-bottom:12px;">❌</div>
+            <div style="font-weight:600; color:#ef4444; margin-bottom:8px;">Upload Failed</div>
+            <div style="color:#6b7280; font-size:0.9em; margin-bottom:16px;">${escapeHtml(msg)}</div>
+            <button type="button" class="btn btn-primary" onclick="window.resetLogView && window.resetLogView()" style="padding:8px 20px; border-radius:8px; font-family:'Outfit',sans-serif; font-weight:600;">Try Again</button>
+        </div>`;
 }
 
 function switchView(viewName) {
@@ -154,12 +246,11 @@ function loadSmartList() {
     const statsEl = document.getElementById('sl-stats');
     if (content) {
         content.innerHTML = `<div style="text-align:center; padding:60px 20px; color:#9ca3af;">
-            <i data-lucide="loader" class="sl-loader-icon"></i>
+            <div class="spinner lg" style="margin:0 auto;" role="status" aria-label="Loading"></div>
             <p style="margin-top:12px;">Building your smart list...</p>
         </div>`;
     }
     if (statsEl) statsEl.innerHTML = '';
-    if (window.lucide) window.lucide.createIcons();
 
     fetch('/api/smart-list')
         .then((res) => res.json())
@@ -300,8 +391,11 @@ function renderSmartList(data) {
             const co2Display = isSwapped ? item.swapped_co2 : item.avg_co2;
             const co2Num = Number(co2Display ?? 0);
             const co2Color = co2Num > 5 ? '#ef4444' : co2Num < 1.5 ? '#22c55e' : '#f59e0b';
-            const frequencyBadge =
-                item.times_purchased >= 3 ? '🔄 Regular' : item.times_purchased >= 2 ? '↩️ Repeat' : '1️⃣ Once';
+            const isReg = Boolean(item.is_regular);
+            const freqBorder = isReg ? '#4f772d' : '#d3e0d4';
+            const freqBg = isReg ? '#f0fdf4' : '#f9fafb';
+            const freqColor = isReg ? '#166534' : '#9ca3af';
+            const freqLabel = isReg ? '🔄 Regular' : '1️⃣ One-time';
             const brandLine = isSwapped
                 ? escapeHtml(item.swap_to.brand || '')
                 : escapeHtml(item.brand || '');
@@ -331,7 +425,11 @@ function renderSmartList(data) {
                         </div>
                         <div style="display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap;">
                             <span style="font-size:0.8em; color:#6b7280;">${brandLine}</span>
-                            <span style="font-size:0.75em; background:#f1f5f1; color:#6b7280; padding:1px 6px; border-radius:4px;">${frequencyBadge}</span>
+                            <button type="button" class="sl-freq-toggle" data-item-id="${escapeHtml(item.id)}"
+                                onclick="toggleItemFrequency('${item.id}')"
+                                style="font-size:0.75em; padding:2px 8px; border-radius:6px; border:1px solid ${freqBorder};
+                                background:${freqBg}; color:${freqColor}; cursor:pointer; font-family:'Outfit',sans-serif;
+                                transition:all 0.2s; display:inline-flex; align-items:center; gap:4px;">${freqLabel}</button>
                             ${
                                 item.avg_quantity > 1
                                     ? `<span style="font-size:0.75em; color:#9ca3af;">Qty: ${escapeHtml(
@@ -361,17 +459,53 @@ function renderSmartList(data) {
     container.innerHTML = html;
 }
 
-function recalcSmartListStatsFromIncluded() {
-    if (!smartListData?.smart_list) return;
-    const included = smartListData.smart_list.filter((i) => i.included);
-    const original = included.reduce((s, i) => s + Number(i.avg_co2 || 0), 0);
-    const optimized = included.reduce((s, i) => s + Number(i.swapped_co2 != null ? i.swapped_co2 : i.avg_co2 || 0), 0);
+function recalcSmartListStats() {
+    if (!smartListData) return;
+    const included = (smartListData.smart_list || []).filter((i) => i.included);
     smartListData.stats = smartListData.stats || {};
     smartListData.stats.total_items = included.length;
-    smartListData.stats.original_co2 = Math.round(original * 100) / 100;
-    smartListData.stats.optimized_co2 = Math.round(optimized * 100) / 100;
-    smartListData.stats.total_saved = Math.round((original - optimized) * 100) / 100;
-    smartListData.stats.swap_count = smartListData.smart_list.filter((i) => i.swapped).length;
+    smartListData.stats.original_co2 =
+        Math.round(included.reduce((s, i) => s + Number(i.avg_co2 || 0), 0) * 100) / 100;
+    smartListData.stats.optimized_co2 =
+        Math.round(
+            included.reduce((s, i) => s + Number(i.swapped_co2 != null ? i.swapped_co2 : i.avg_co2 || 0), 0) * 100
+        ) / 100;
+    smartListData.stats.total_saved =
+        Math.round((smartListData.stats.original_co2 - smartListData.stats.optimized_co2) * 100) / 100;
+    smartListData.stats.swap_count = included.filter((i) => i.swapped).length;
+}
+
+function toggleItemFrequency(itemId) {
+    if (!smartListData?.smart_list) return;
+
+    const item = smartListData.smart_list.find((i) => i.id === itemId);
+    if (!item) return;
+
+    item.is_regular = !item.is_regular;
+    if (item.is_regular && !item.included) {
+        item.included = true;
+    }
+
+    const btn = document.querySelector(`.sl-freq-toggle[data-item-id="${CSS.escape(itemId)}"]`);
+    if (btn) {
+        if (item.is_regular) {
+            btn.innerHTML = '🔄 Regular';
+            btn.style.border = '1px solid #4f772d';
+            btn.style.background = '#f0fdf4';
+            btn.style.color = '#166534';
+        } else {
+            btn.innerHTML = '1️⃣ One-time';
+            btn.style.border = '1px solid #d3e0d4';
+            btn.style.background = '#f9fafb';
+            btn.style.color = '#9ca3af';
+        }
+    }
+
+    const cb = document.querySelector(`.sl-item-check[data-item-id="${CSS.escape(itemId)}"]`);
+    if (cb) cb.checked = Boolean(item.included);
+
+    recalcSmartListStats();
+    renderSmartListStats(smartListData.stats);
 }
 
 function toggleSmartListItem(itemId, checked) {
@@ -379,7 +513,7 @@ function toggleSmartListItem(itemId, checked) {
     const item = smartListData.smart_list.find((i) => i.id === itemId);
     if (item) {
         item.included = checked;
-        recalcSmartListStatsFromIncluded();
+        recalcSmartListStats();
         renderSmartListStats(smartListData.stats);
     }
 }
@@ -391,56 +525,73 @@ function optimizeSmartList() {
     if (btn) {
         btn.disabled = true;
         btn.innerHTML =
-            '<i data-lucide="loader" style="width:16px;height:16px;" class="sl-loader-icon"></i> Optimizing...';
-        if (window.lucide) window.lucide.createIcons();
+            '<span style="display:inline-flex;align-items:center;gap:8px;"><span class="spinner sm" aria-hidden="true"></span> Analyzing your list…</span>';
     }
 
-    const itemsToOptimize = smartListData.smart_list.filter((i) => i.included && !i.swapped);
+    const payload = smartListData.smart_list.map((i) => ({
+        item_name: i.item_name,
+        brand: i.brand,
+        category: i.category,
+        avg_co2: i.avg_co2,
+        included: Boolean(i.included),
+        swapped: Boolean(i.swapped),
+    }));
 
     fetch('/api/smart-list/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: itemsToOptimize }),
+        body: JSON.stringify({ items: payload }),
     })
-        .then(async (res) => {
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok && (!data.suggestions || !data.suggestions.length)) {
-                throw new Error(data.error || res.statusText || 'Request failed');
-            }
-            return data;
-        })
+        .then((res) => res.json())
         .then((data) => {
+            if (data.error && (!data.suggestions || !data.suggestions.length)) {
+                throw new Error(data.error);
+            }
             if (data.suggestions && data.suggestions.length > 0) {
+                let appliedCount = 0;
+
                 for (const suggestion of data.suggestions) {
-                    const origKey = (suggestion.original_product || '').toLowerCase().trim();
+                    const origName = (suggestion.original_product || '').toLowerCase().trim();
+                    const origBrand = (suggestion.original_brand || '').toLowerCase().trim();
+
                     const item = smartListData.smart_list.find((i) => {
-                        const n = (i.item_name || '').toLowerCase().trim();
-                        return (
-                            n === origKey ||
-                            (origKey && n.includes(origKey)) ||
-                            (origKey && origKey.includes(n))
+                        if (!i.included || i.swapped) return false;
+                        const iname = (i.item_name || '').toLowerCase();
+                        const ibrand = (i.brand || '').toLowerCase();
+                        const nameMatch = Boolean(
+                            origName && iname && (iname.includes(origName) || origName.includes(iname))
                         );
+                        const brandMatch =
+                            origBrand &&
+                            ibrand &&
+                            (ibrand.includes(origBrand) || origBrand.includes(ibrand));
+                        return nameMatch || brandMatch;
                     });
-                    if (item && !item.swapped) {
+
+                    if (item) {
                         item.swapped = true;
                         item.swap_to = {
                             product: suggestion.recommended_product,
                             brand: suggestion.recommended_brand,
                             co2_savings: Number(suggestion.co2_savings || 0),
-                            reason: suggestion.reason,
-                            aisle_location: suggestion.aisle_location,
+                            reason: suggestion.reason || '',
+                            aisle_location: suggestion.aisle_location || '',
                         };
                         item.swapped_co2 =
                             Math.round(
                                 Math.max(0.1, Number(item.avg_co2 || 0) - Number(suggestion.co2_savings || 0)) * 100
                             ) / 100;
+                        appliedCount++;
                     }
                 }
-                recalcSmartListStatsFromIncluded();
+
+                recalcSmartListStats();
                 renderSmartListStats(smartListData.stats);
                 renderSmartList(smartListData);
+                if (window.lucide) window.lucide.createIcons();
+
                 if (typeof showToast === 'function') {
-                    showToast(`${data.suggestions.length} new swap suggestions applied!`, 'success');
+                    showToast(`${appliedCount} items swapped to greener alternatives! 🌱`, 'success');
                 }
             } else if (typeof showToast === 'function') {
                 showToast(data.message || 'Your list is already well optimized!', 'info');
@@ -449,7 +600,7 @@ function optimizeSmartList() {
         .catch((err) => {
             console.error('Optimize error:', err);
             if (typeof showToast === 'function') {
-                showToast(err.message || 'Failed to optimize. Try again.', 'error');
+                showToast('Optimization failed. Please try again.', 'error');
             }
         })
         .finally(() => {
@@ -466,21 +617,33 @@ function copySmartList() {
     if (!smartListData) return;
 
     const included = smartListData.smart_list.filter((i) => i.included);
-    const text = included
-        .map((i) => {
-            const name =
-                i.swapped && i.swap_to
-                    ? `${i.swap_to.product} (${i.swap_to.brand || ''})`
-                    : `${i.item_name} (${i.brand || ''})`;
-            const qty = i.avg_quantity > 1 ? ` ×${i.avg_quantity}` : '';
-            return `☐ ${name}${qty}`;
-        })
-        .join('\n');
+    const regulars = included.filter((i) => i.is_regular);
+    const oneTimers = included.filter((i) => !i.is_regular);
 
     const st = smartListData.stats || {};
-    const header = `🛒 My EcoCart Smart Grocery List\n🌱 Optimized CO₂: ${Number(st.optimized_co2 ?? 0).toFixed(1)} kg\n💚 CO₂ Saved: ${Number(st.total_saved ?? 0).toFixed(1)} kg\n\n`;
+    let text = '🛒 My EcoCart Smart Grocery List\n';
+    text += `🌱 Optimized CO₂: ${Number(st.optimized_co2 ?? 0).toFixed(1)} kg\n`;
+    text += `💚 CO₂ Saved: ${Number(st.total_saved ?? 0).toFixed(1)} kg\n\n`;
 
-    const full = header + text;
+    const lineFor = (i) => {
+        const name =
+            i.swapped && i.swap_to
+                ? `${i.swap_to.product} (${i.swap_to.brand || ''})`
+                : `${i.item_name} (${i.brand || ''})`;
+        const qty = i.avg_quantity > 1 ? ` ×${i.avg_quantity}` : '';
+        return `  ☐ ${name}${qty}`;
+    };
+
+    if (regulars.length > 0) {
+        text += '🔄 REGULARS:\n';
+        text += regulars.map(lineFor).join('\n');
+        text += '\n\n';
+    }
+
+    if (oneTimers.length > 0) {
+        text += '1️⃣ ONE-TIME:\n';
+        text += oneTimers.map(lineFor).join('\n');
+    }
 
     const done = () => {
         if (typeof showToast === 'function') {
@@ -489,9 +652,9 @@ function copySmartList() {
     };
 
     if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(full).then(done).catch(() => {
+        navigator.clipboard.writeText(text).then(done).catch(() => {
             const textarea = document.createElement('textarea');
-            textarea.value = full;
+            textarea.value = text;
             document.body.appendChild(textarea);
             textarea.select();
             document.execCommand('copy');
@@ -500,7 +663,7 @@ function copySmartList() {
         });
     } else {
         const textarea = document.createElement('textarea');
-        textarea.value = full;
+        textarea.value = text;
         document.body.appendChild(textarea);
         textarea.select();
         document.execCommand('copy');
@@ -508,6 +671,8 @@ function copySmartList() {
         done();
     }
 }
+
+window.toggleItemFrequency = toggleItemFrequency;
 
 function findItemsInStore() {
     if (!smartListData?.smart_list) return;
@@ -529,10 +694,8 @@ function findItemsInStore() {
 function resetLogView() {
     const feedback = document.getElementById('ai-feedback');
     if (!feedback) return;
-    
-    // Hide the results but restore the loading template for next time
     feedback.style.display = 'none';
-    renderUploadFeedbackShell('analyzing');
+    feedback.innerHTML = '';
 }
 
 // Global Refresh Suite
@@ -567,12 +730,11 @@ function initUpload() {
         formData.append('file', file);
 
         const feedback = document.getElementById('ai-feedback');
+        if (!feedback) return;
         feedback.style.display = 'block';
         feedback.scrollIntoView({ behavior: 'smooth' });
 
-        renderUploadFeedbackShell('uploading');
-        await new Promise((r) => setTimeout(r, 220));
-        renderUploadFeedbackShell('analyzing');
+        const progressUi = showUploadProgress(feedback);
 
         try {
             const response = await fetch('/api/upload', {
@@ -583,31 +745,38 @@ function initUpload() {
             try {
                 result = await response.json();
             } catch (parseErr) {
+                progressUi.cancel();
+                renderUploadErrorFeedback('Invalid server response');
                 showToast('Upload failed: invalid server response', 'error');
-                resetLogView();
                 return;
             }
-            renderUploadFeedbackShell('processing');
-            await new Promise((r) => setTimeout(r, 180));
+
+            if (!response.ok) {
+                throw new Error(result.error || `Upload failed: ${response.status}`);
+            }
 
             if (result.status === 'success') {
-                renderUploadFeedbackShell('done');
+                progressUi.complete();
                 const pts = result.points_awarded || result.points || 0;
                 const p = Number(pts) || 0;
-                if (p > 0) {
-                    showToast(`Receipt uploaded successfully! +${p} pts`, 'success');
-                } else {
-                    showToast('Receipt uploaded successfully!', 'success');
-                }
-                displayAIResults(result);
+                setTimeout(() => {
+                    if (p > 0) {
+                        showToast(`Receipt uploaded successfully! +${p} pts`, 'success');
+                    } else {
+                        showToast('Receipt uploaded successfully!', 'success');
+                    }
+                    displayAIResults(result);
+                }, 600);
             } else {
-                showToast(result.error || 'Upload failed', 'error');
-                resetLogView();
+                throw new Error(result.error || 'Upload failed');
             }
         } catch (err) {
             console.error(err);
-            showToast('An error occurred during upload.', 'error');
-            resetLogView();
+            progressUi.cancel();
+            renderUploadErrorFeedback(err.message || 'Something went wrong. Please try again.');
+            showToast(err.message || 'An error occurred during upload.', 'error');
+        } finally {
+            fileInput.value = '';
         }
     };
 }
@@ -1147,7 +1316,8 @@ async function loadSwapRecommendations(receiptId) {
     const container = document.getElementById('swap-recommendations-container');
     const btn = document.getElementById('btn-get-swaps');
     if (!container || !receiptId) return;
-    container.innerHTML = '<p class="text-xs text-muted">Loading recommendations…</p>';
+    container.innerHTML =
+        '<p class="text-xs text-muted" style="display:flex;align-items:center;gap:8px;"><span class="spinner sm" aria-hidden="true"></span> Loading recommendations…</p>';
     if (btn) {
         btn.disabled = true;
     }
@@ -1208,6 +1378,8 @@ async function loadSwapRecommendations(receiptId) {
 // Dynamic AI Rendering — result: { filename, store_name, receipt_id, data }
 function displayAIResults(result) {
     const feedback = document.getElementById('ai-feedback');
+    if (!feedback) return;
+    feedback.style.display = 'block';
     const filename = result.filename || '';
     const storeName = result.store_name;
     const receiptId = result.receipt_id;
@@ -2135,6 +2307,42 @@ function initChat() {
 
     if (!chatInput || !sendBtn || !scroller || !chatMessages || !chatSidebar) return;
 
+    const suggestionsEl = document.getElementById('chat-suggestions');
+    if (suggestionsEl) {
+        suggestionsEl.dataset.chatHistoryPending = '1';
+        suggestionsEl.style.opacity = '0';
+        suggestionsEl.style.visibility = 'hidden';
+        suggestionsEl.style.pointerEvents = 'none';
+    }
+
+    function revealChatSuggestionsForEmptyState() {
+        const el = document.getElementById('chat-suggestions');
+        if (!el || el.dataset.chatHistoryPending !== '1') return;
+        el.dataset.chatHistoryPending = '';
+        el.style.opacity = '';
+        el.style.visibility = '';
+        el.style.pointerEvents = '';
+    }
+
+    function hideChatSuggestionsPermanently(immediate) {
+        const suggestions = document.getElementById('chat-suggestions');
+        if (!suggestions) return;
+        if (suggestions.dataset.removing === '1') return;
+        suggestions.dataset.removing = '1';
+        suggestions.dataset.chatHistoryPending = '';
+        if (immediate) {
+            suggestions.remove();
+            return;
+        }
+        suggestions.style.transition = 'opacity 0.3s, max-height 0.3s';
+        suggestions.style.opacity = '0';
+        suggestions.style.maxHeight = '0';
+        suggestions.style.overflow = 'hidden';
+        suggestions.style.margin = '0';
+        suggestions.style.padding = '0';
+        setTimeout(() => suggestions.remove(), 300);
+    }
+
     chatInput.disabled = false;
     if (soonHint) soonHint.style.display = 'none';
 
@@ -2299,6 +2507,8 @@ function initChat() {
         const query = chatInput.value.trim();
         if (!query || !chatSendReady) return;
 
+        hideChatSuggestionsPermanently(false);
+
         let payloadQuery = query;
         const rid = window.__chatFocusedReceiptId;
         if (rid) {
@@ -2414,6 +2624,8 @@ function removeDashboardStatSkeletonGhosts() {
     document.getElementById('dashboard-stat-skeleton')?.remove();
     document.querySelectorAll('#view-dashboard .dashboard-stat-skeleton').forEach((el) => el.remove());
 }
+
+window.resetLogView = resetLogView;
 
 // Initial View
 window.addEventListener('DOMContentLoaded', () => {

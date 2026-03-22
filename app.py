@@ -1421,6 +1421,7 @@ def api_smart_list():
             "last_purchased": entry["last_purchased"].strftime("%Y-%m-%d")
             if entry["last_purchased"]
             else None,
+            # Default: 1 purchase = one-time; 2+ = regular (user can override in UI)
             "is_regular": entry["count"] >= 2,
             "swapped": False,
             "swap_to": None,
@@ -1469,8 +1470,7 @@ def api_smart_list():
 
 @app.route("/api/smart-list/optimize", methods=["POST"])
 def optimize_smart_list():
-    user_info = session.get("user")
-    if not user_info:
+    if "user" not in session:
         return jsonify({"error": "Unauthorized"}), 401
 
     if model is None:
@@ -1479,49 +1479,51 @@ def optimize_smart_list():
     data = request.get_json(silent=True) or {}
     items = data.get("items", [])
     if not items:
-        return jsonify({"error": "No items to optimize"}), 400
+        return jsonify({"suggestions": [], "message": "No items to optimize"})
 
-    unswapped = [i for i in items if not i.get("swapped")]
-    if not unswapped:
-        return jsonify({"suggestions": [], "message": "All items already optimized!"})
+    candidates = [i for i in items if i.get("included") and not i.get("swapped")]
+    if not candidates:
+        return jsonify(
+            {
+                "suggestions": [],
+                "message": "All your items are already optimized! Great job.",
+            }
+        )
 
-    unswapped.sort(key=lambda x: float(x.get("avg_co2") or 0), reverse=True)
-    top_items = unswapped[:5]
+    candidates.sort(key=lambda x: float(x.get("avg_co2") or 0), reverse=True)
+    top_items = candidates[:5]
 
     items_text = "\n".join(
         [
-            f"- {i.get('item_name', '')} ({i.get('brand') or 'unknown brand'}): "
-            f"{i.get('avg_co2', 0)} kg CO2e, category: {i.get('category') or 'Other'}"
+            f"- {i.get('item_name', '')} by {i.get('brand') or 'Unknown'} "
+            f"({i.get('category', 'Other')}): {i.get('avg_co2', 0)} kg CO2e per purchase"
             for i in top_items
         ]
     )
 
-    prompt = f"""Given this user's regular grocery list items, suggest a better brand or variation for each that has lower carbon emissions.
+    n = len(top_items)
+    prompt = f"""You are an eco-grocery advisor. The user has these items on their regular grocery list. For EACH item, suggest a more sustainable alternative.
 
 STRICT RULES:
-- ONLY suggest the SAME type of product with a different brand or variation
-- If someone buys chicken breast, suggest a different brand of chicken breast — NOT tofu
-- If someone buys whole milk, suggest a different brand of whole milk — NOT oat milk
-- Focus on: brands with better sustainability practices, local/regional brands, organic options, better sourcing
-- Include a real brand name for every recommendation
-- CO2 savings should be conservative (10-30% reduction, not 90%)
+- Suggest the SAME type of product, just a more sustainable brand or variation
+- If the item is "Tyson Chicken Breast", suggest "Perdue Harvestland Organic Chicken Breast" — NOT tofu or lentils
+- If the item is "Horizon Whole Milk", suggest "Organic Valley Whole Milk" — NOT oat milk
+- Focus on: brands with better sustainability practices, local/regional options, organic, regenerative farming, less packaging
+- Every recommendation must include a REAL brand name that exists in US grocery stores
+- CO2 savings should be realistic (10-30% of original, not 90%)
+- You MUST return exactly one suggestion per item — do not skip any
 
-Items to optimize:
+Items to optimize (ordered from highest to lowest carbon impact):
 {items_text}
 
-Respond ONLY with valid JSON array (no markdown):
-[{{"original_product": "...", "original_brand": "...", "recommended_product": "...", "recommended_brand": "...", "co2_savings": 0.0, "reason": "brief reason", "aisle_location": "aisle name"}}]"""
+Respond ONLY with a valid JSON array with exactly {n} entries:
+[{{"original_product": "exact item name from above", "original_brand": "exact brand from above", "recommended_product": "specific replacement product name", "recommended_brand": "real brand name", "co2_savings": number_between_0.1_and_5.0, "reason": "one sentence explaining why this is better", "aisle_location": "which aisle or section of the store"}}]"""
 
     try:
-        response = model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"},
-        )
+        response = model.generate_content(prompt)
         text = (response.text or "").strip()
         if text.startswith("```"):
-            parts = text.split("\n", 1)
-            text = parts[1] if len(parts) > 1 else text
-            text = text.rsplit("```", 1)[0].strip()
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         parsed = json.loads(text)
         if isinstance(parsed, list):
             suggestions = parsed
@@ -1531,8 +1533,28 @@ Respond ONLY with valid JSON array (no markdown):
                 suggestions = []
         else:
             suggestions = []
-        return jsonify({"suggestions": suggestions})
+
+        validated = []
+        for s in suggestions:
+            if not isinstance(s, dict):
+                continue
+            orig = None
+            op = (s.get("original_product") or "").lower()
+            for item in top_items:
+                iname = (item.get("item_name") or "").lower()
+                if iname and (iname in op or op in iname):
+                    orig = item
+                    break
+            if orig:
+                max_savings = float(orig.get("avg_co2") or 1) * 0.4
+                raw = float(s.get("co2_savings") or 0)
+                s["co2_savings"] = min(raw, round(max_savings, 2))
+                s["co2_savings"] = max(float(s["co2_savings"]), 0.1)
+            validated.append(s)
+
+        return jsonify({"suggestions": validated})
     except Exception as e:
+        print(f"Optimize error: {e}", flush=True)
         return jsonify({"error": str(e), "suggestions": []}), 500
 
 

@@ -56,6 +56,67 @@ function getContainer() {
     return document.getElementById('supermarket-canvas-container');
 }
 
+let smLeftOpen = true;
+let smRightOpen = true;
+let smPanelWasOpenBeforeFpLeft = true;
+let smPanelWasOpenBeforeFpRight = true;
+
+function toggleSMPanel(side) {
+    if (side === 'left') {
+        smLeftOpen = !smLeftOpen;
+        const wrapper = document.getElementById('sm-left-wrapper');
+        const tab = document.getElementById('sm-left-expand');
+        if (!wrapper || !tab) return;
+
+        if (smLeftOpen) {
+            wrapper.style.transform = 'translateX(0)';
+            wrapper.style.opacity = '1';
+            wrapper.style.pointerEvents = 'auto';
+            tab.style.display = 'none';
+        } else {
+            wrapper.style.transform = 'translateX(calc(-100% - 16px))';
+            wrapper.style.opacity = '0';
+            wrapper.style.pointerEvents = 'none';
+            setTimeout(() => {
+                if (!smLeftOpen) tab.style.display = 'block';
+            }, 300);
+        }
+    } else if (side === 'right') {
+        smRightOpen = !smRightOpen;
+        const wrapper = document.getElementById('sm-right-wrapper');
+        const tab = document.getElementById('sm-right-expand');
+        if (!wrapper || !tab) return;
+
+        if (smRightOpen) {
+            wrapper.style.transform = 'translateX(0)';
+            wrapper.style.opacity = '1';
+            wrapper.style.pointerEvents = 'auto';
+            tab.style.display = 'none';
+        } else {
+            wrapper.style.transform = 'translateX(calc(100% + 16px))';
+            wrapper.style.opacity = '0';
+            wrapper.style.pointerEvents = 'none';
+            setTimeout(() => {
+                if (!smRightOpen) tab.style.display = 'block';
+            }, 300);
+        }
+    }
+}
+
+function maybeCollapseSupermarketPanelsMobile() {
+    if (typeof window === 'undefined' || window.innerWidth > 768) return;
+    if (smLeftOpen) toggleSMPanel('left');
+    if (smRightOpen) toggleSMPanel('right');
+}
+
+function smRouteToast(msg, variant) {
+    if (typeof window.showToast === 'function') {
+        window.showToast(msg, variant || 'info');
+    } else {
+        alert(msg);
+    }
+}
+
 // ============ INIT ============
 function init() {
     const section = document.getElementById('view-supermarket');
@@ -169,6 +230,7 @@ function init() {
     initialized = true;
     startLoop();
     populateItemChecklist();
+    maybeCollapseSupermarketPanelsMobile();
     console.log('Supermarket 3D initialized');
 }
 
@@ -208,9 +270,10 @@ function wireUi() {
     document.getElementById('sm-item-source')?.addEventListener('change', () => populateItemChecklist());
 
     document.getElementById('sm-generate-route')?.addEventListener('click', async () => {
-        const ids = [...document.querySelectorAll('#sm-item-checklist input.sm-route-cb:checked')].map((x) => x.dataset.pid);
+        const checked = document.querySelectorAll('#sm-item-checklist input.sm-route-cb:checked');
+        const ids = [...checked].map((x) => x.dataset.pid).filter(Boolean);
         if (!ids.length) {
-            alert('Select at least one product.');
+            smRouteToast('Select at least one item to generate a route', 'info');
             return;
         }
         if (!scene) return;
@@ -273,7 +336,7 @@ async function populateItemChecklist() {
                 data.items.forEach((it) => {
                     const pid = it.layout_product_id;
                     if (!pid) return;
-                    html += `<label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0;font-size:0.78rem;cursor:pointer;"><input type="checkbox" class="sm-route-cb" data-pid="${pid}" checked/> <span>${escapeHtml(it.name)} <span style="color:#9ca3af">(${it.kg_co2e} kg)</span></span></label>`;
+                    html += `<label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0;font-size:0.78rem;cursor:pointer;"><input type="checkbox" class="sm-route-cb" data-pid="${pid}" checked /> <span>${escapeHtml(it.name)} <span style="color:#9ca3af">(${it.kg_co2e} kg)</span></span></label>`;
                 });
             }
         }
@@ -894,8 +957,10 @@ function enterFirstPerson() {
     el.addEventListener('touchend', fpTouchEnd);
     showFPHud();
     maybeAddFpWalkButton();
-    const overviewControls = document.getElementById('sm-controls');
-    if (overviewControls) overviewControls.style.display = 'none';
+    smPanelWasOpenBeforeFpLeft = smLeftOpen;
+    smPanelWasOpenBeforeFpRight = smRightOpen;
+    if (smLeftOpen) toggleSMPanel('left');
+    if (smRightOpen) toggleSMPanel('right');
     document.getElementById('sm-mode-overview')?.classList.remove('sm-mode-active');
     document.getElementById('sm-mode-firstperson')?.classList.add('sm-mode-active');
 }
@@ -931,8 +996,8 @@ function exitFirstPerson() {
         camera.lookAt(40, 0, 30);
     }
     hideFPHud();
-    const overviewControls = document.getElementById('sm-controls');
-    if (overviewControls) overviewControls.style.display = '';
+    if (smPanelWasOpenBeforeFpLeft && !smLeftOpen) toggleSMPanel('left');
+    if (smPanelWasOpenBeforeFpRight && !smRightOpen) toggleSMPanel('right');
     document.getElementById('sm-mode-overview')?.classList.add('sm-mode-active');
     document.getElementById('sm-mode-firstperson')?.classList.remove('sm-mode-active');
     maybeAddFpWalkButton();
@@ -1239,3 +1304,4 @@ window.stopSupermarketRender = stopLoop;
 window.resetSupermarketView = resetView;
 window.enterFirstPerson = enterFirstPerson;
 window.exitFirstPerson = exitFirstPerson;
+window.toggleSMPanel = toggleSMPanel;
