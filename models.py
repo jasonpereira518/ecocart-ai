@@ -27,3 +27,4 @@ class Activity(db.Model):
     # Additional data for trend calculation
     quantity = db.Column(db.Float, default=1.0)
     category = db.Column(db.String(64)) # e.g., 'Meat', 'Dairy', 'Vegetable'
+    receipt_id = db.Column(db.String(128)) # To group items from the same upload

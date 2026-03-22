@@ -32,15 +32,9 @@
                     </a>
                 </div>
                 <div class="nav-item">
-                    <a href="#" class="nav-link" data-view="habits">
-                        <i data-lucide="repeat"></i>
-                        Habit Tracker
-                    </a>
-                </div>
-                <div class="nav-item">
-                    <a href="#" class="nav-link" data-view="insights">
-                        <i data-lucide="zap"></i>
-                        AI Insights
+                    <a href="#" class="nav-link" data-view="history">
+                        <i data-lucide="history"></i>
+                        Full History
                     </a>
                 </div>
             </nav>
@@ -69,50 +63,44 @@
             <div id="view-content">
                 <!-- Dashboard View -->
                 <section id="view-dashboard" class="view-section active">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem;">
-                        <div>
-                            <h1 class="text-2xl">Good afternoon, {{ user.given_name or user.name or 'Explorer' }}!</h1>
-                            <p class="text-muted">
+                    <div style="margin-bottom: 2rem;">
+                        <h1 class="text-2xl" style="overflow-wrap: break-word; line-height: 1.2; margin-bottom: 0.5rem;">Good afternoon, {{ user.given_name or user.name or 'Explorer' }}!</h1>
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                            <p class="text-muted" style="flex: 1; min-width: 200px;">
                                 {% if total_co2 > 0 %}
                                 You're making great progress this week.
                                 {% else %}
                                 Welcome! Start your journey by logging an activity.
                                 {% endif %}
                             </p>
-                        </div>
-                        <div style="display: flex; gap: 1rem;">
-                            <button class="btn btn-outline" onclick="alert('Sharing coming soon!')">
-                                <i data-lucide="share-2"></i>
-                                Share
-                            </button>
-                            <button class="btn btn-primary" onclick="switchView('log')">
-                                <i data-lucide="plus"></i>
-                                Log Activity
-                            </button>
+                            <div style="display: flex; gap: 0.75rem; flex-shrink: 0;">
+                                <button class="btn btn-outline btn-sm" onclick="alert('Sharing coming soon!')">
+                                    <i data-lucide="share-2" size="14"></i>
+                                    Share
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="switchView('log')">
+                                    <i data-lucide="plus" size="14"></i>
+                                    Log Activity
+                                </button>
+                            </div>
                         </div>
                     </div>
 
                     <div class="grid-cols-3 mb-2" style="margin-bottom: 2rem;">
                         <div class="card">
-                            <p class="text-xs text-muted font-bold uppercase">Estimated Carbon</p>
-                            <h2 class="text-2xl mt-4">{{ total_co2 }} <span class="text-sm font-normal">kg CO2e</span></h2>
-                            <p class="text-xs mt-2" style="color: var(--primary-dark);">
-                                {% if total_co2 > 0 %}
-                                ↓ 8% from last week
-                                {% else %}
-                                No data yet
-                                {% endif %}
-                            </p>
+                            <p class="text-xs text-muted font-bold uppercase">Carbon Footprint</p>
+                            <h2 class="text-2xl mt-4" id="stat-total-co2">{{ total_co2 or 0 }} <span class="text-sm font-normal">kg CO2e</span></h2>
+                            <p class="text-xs mt-2 text-muted">Weekly performance tracking</p>
                         </div>
                         <div class="card">
                             <p class="text-xs text-muted font-bold uppercase">Points Earned</p>
-                            <h2 class="text-2xl mt-4">{{ local_user.points or 0 }} <span class="text-sm font-normal">TerraPoints</span></h2>
+                            <h2 class="text-2xl mt-4" id="stat-points">{{ local_user.points or 0 }} <span class="text-sm font-normal">TerraPoints</span></h2>
                             <p class="text-xs mt-2 text-muted">Keep logging to earn more!</p>
                         </div>
                         <div class="card">
-                            <p class="text-xs text-muted font-bold uppercase">Actions Today</p>
-                            <h2 class="text-2xl mt-4">{{ actions_today }} <span class="text-sm font-normal">Completed</span></h2>
-                            <p class="text-xs mt-2 text-muted">Next: Upload grocery receipt</p>
+                            <p class="text-xs text-muted font-bold uppercase">Next Milestone</p>
+                            <h2 class="text-2xl mt-4" id="stat-milestone">{{ (local_user.points or 0) % 100 }}<span class="text-sm font-normal">/100</span></h2>
+                            <p class="text-xs mt-2 text-muted">Goal: "Eco-Apprentice"</p>
                         </div>
                     </div>
 
@@ -131,21 +119,21 @@
                     <div class="grid-cols-2">
                         <section>
                             <h3 class="text-lg mb-2">Recent Activities</h3>
-                            <div class="card" style="padding: 0;">
+                            <div class="card" style="padding: 0;" id="dashboard-recent-activities">
                                 {% if recent_activities %}
                                     {% for activity in recent_activities %}
                                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 1rem; border-bottom: 1px solid var(--border);">
                                         <div style="display: flex; gap: 0.75rem; align-items: center;">
                                             <div style="background: #f1f5f9; padding: 0.5rem; border-radius: 8px;">
-                                                <i data-lucide="{% if activity.type == 'grocery' %}shopping-bag{% elif activity.type == 'travel' %}bike{% else %}activity{% endif %}" size="18"></i>
+                                                <i data-lucide="shopping-bag" size="18"></i>
                                             </div>
                                             <div>
                                                 <p class="text-sm font-bold">{{ activity.item_name }}</p>
-                                                <p class="text-xs text-muted">{{ activity.category or 'General' }} • {{ activity.timestamp.strftime('%H:%M') }}</p>
+                                                <p class="text-xs text-muted">{{ activity.category or 'General' }}</p>
                                             </div>
                                         </div>
                                         <p class="text-sm font-bold {% if activity.kg_co2e > 5 %}text-high-impact{% elif activity.kg_co2e < 1.5 %}text-low-impact{% endif %}">
-                                            {{ "+" if activity.kg_co2e > 0 }}{{ activity.kg_co2e|round(2) }}kg
+                                            {{ activity.kg_co2e|round(2) }}kg
                                         </p>
                                     </div>
                                     {% endfor %}
@@ -173,7 +161,7 @@
                                 {% else %}
                                     <p class="text-sm text-muted">Upload receipts to track your habits.</p>
                                 {% endif %}
-                                <button class="btn btn-outline" style="width: 100%;" onclick="switchView('habits')">View All Habits</button>
+                                <a href="#" class="btn btn-outline" style="width: 100%; text-align: center; display: block;" onclick="switchView('history')">View All History</a>
                             </div>
                         </section>
                     </div>
@@ -206,52 +194,11 @@
                     </div>
                 </section>
 
-                <!-- Habits View -->
-                <section id="view-habits" class="view-section">
-                    <h1 class="text-2xl mb-2">Habit Formation & Trends</h1>
-                    <p class="text-muted mb-2">Tracking your behavioral shifts over time.</p>
-                    
-                    <div class="grid-cols-2 mt-4">
-                        <div class="card">
-                            <h3 class="text-lg mb-4">Usage Distribution</h3>
-                            <div style="display: flex; flex-direction: column; gap: 1rem;">
-                                {% if trends %}
-                                    {% for category, amount in trends.items() %}
-                                    <div>
-                                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                            <p class="text-sm font-bold">{{ category }}</p>
-                                            <p class="text-sm" style="color: var(--primary-dark);">{{ amount|round(1) }}kg</p>
-                                        </div>
-                                        <div style="height: 6px; background: #e2e8f0; border-radius: 3px;">
-                                            <div style="width: {{ [100, (amount / (total_co2 or 1) * 100)]|min }}%; height: 100%; background: var(--primary-dark); border-radius: 3px;"></div>
-                                        </div>
-                                    </div>
-                                    {% endfor %}
-                                {% else %}
-                                    <p class="text-sm text-muted">No data available yet. Log some activities!</p>
-                                {% endif %}
-                            </div>
-                        </div>
-
-                        <div class="card">
-                            <h3 class="text-lg mb-2">Points Milestone</h3>
-                            <p class="text-sm text-muted">You've earned {{ local_user.points or 0 }} points for your sustainable actions!</p>
-                            <div class="mt-4" style="display: flex; align-items: center; gap: 1rem;">
-                                <div style="width: 60px; height: 60px; border-radius: 50%; border: 4px solid var(--primary); display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--primary-dark);">
-                                    {{ (local_user.points or 0) % 100 }}/100
-                                </div>
-                                <div>
-                                    <p class="text-sm font-bold">Progress to Next Level</p>
-                                    <p class="text-xs text-muted">Current Tier: "Eco-Apprentice"</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </section>
 
-                <!-- Insights View -->
+                <!-- Coach View -->
                 <section id="view-insights" class="view-section">
-                    <h1 class="text-2xl mb-2">AI Insights Hub</h1>
+                    <h1 class="text-2xl mb-2">AI Coach Hub</h1>
                     <p class="text-muted mb-2">Deep dive into your behavioral patterns and carbon footprint.</p>
                     
                     <div class="grid-cols-2 mt-2">
@@ -271,8 +218,112 @@
                         {% endif %}
                     </div>
                 </section>
+                
+                <!-- Full History View -->
+                <section id="view-history" class="view-section">
+                    <h1 class="text-2xl mb-2">Purchase History</h1>
+                    <p class="text-muted mb-4">Detailed breakdown of all your logged receipts and items.</p>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 1.5rem;" id="history-container">
+                        {% set grouped_activities = all_activities | groupby('receipt_id') %}
+                        {% for receipt_group in grouped_activities %}
+                            <div class="card" style="padding: 0; overflow: hidden;">
+                                <div style="background: var(--bg-main); padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <p class="text-xs font-bold uppercase tracking-wider text-muted">Receipt Entry</p>
+                                        <h3 class="text-lg" style="margin: 0;">{{ receipt_group.grouper or 'Manual Entry' }}</h3>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <p class="text-xs text-muted">Date Logged</p>
+                                        <p class="text-sm font-bold">{{ receipt_group.list[0].timestamp.strftime('%B %d, %Y') }}</p>
+                                    </div>
+                                </div>
+                                <div style="padding: 1rem 1.5rem;">
+                                    <table style="width: 100%; border-collapse: collapse;">
+                                        <thead>
+                                            <tr style="border-bottom: 1px solid var(--border);">
+                                                <th style="text-align: left; padding: 0.75rem 0; font-size: 0.75rem; text-transform: uppercase;" class="text-muted">Item Description</th>
+                                                <th style="text-align: left; padding: 0.75rem 0; font-size: 0.75rem; text-transform: uppercase;" class="text-muted">Category</th>
+                                                <th style="text-align: right; padding: 0.75rem 0; font-size: 0.75rem; text-transform: uppercase;" class="text-muted">Footprint</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for item in receipt_group.list %}
+                                            <tr style="border-bottom: 1px solid #f8fafc;">
+                                                <td style="padding: 0.875rem 0;">
+                                                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                                        <i data-lucide="shopping-tag" size="14"></i>
+                                                        <span class="text-sm font-bold">{{ item.item_name }}</span>
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 0.875rem 0;"><span class="text-xs" style="background: var(--bg-main); padding: 2px 8px; border-radius: 4px;">{{ item.category or 'General' }}</span></td>
+                                                <td style="padding: 0.875rem 0; text-align: right;">
+                                                    <span class="text-sm font-bold {% if item.kg_co2e > 5 %}text-high-impact{% elif item.kg_co2e < 1.5 %}text-low-impact{% endif %}">
+                                                        {{ item.kg_co2e|round(2) }}kg
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                        <tfoot>
+                                            <tr>
+                                                <td colspan="2" style="padding-top: 1rem; text-align: right; font-size: 0.875rem;" class="text-muted">Receipt Total:</td>
+                                                <td style="padding-top: 1rem; text-align: right; font-size: 0.875rem; font-weight: 700;">
+                                                    {% set total = receipt_group.list|sum(attribute='kg_co2e') %}
+                                                    {{ total|round(2) }}kg CO2e
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="card" style="text-align: center; padding: 4rem 2rem;">
+                                <i data-lucide="archive" size="48" class="text-muted" style="margin-bottom: 1rem;"></i>
+                                <h3 class="text-xl">No History Found</h3>
+                                <p class="text-muted mt-2">Upload your first receipt to see it here!</p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </section>
             </div>
         </main>
+
+        <!-- AI Coach Sidebar (Right) -->
+        <aside class="right-sidebar">
+            <div style="padding: 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg-main);">
+                <div>
+                    <h3 class="text-sm font-bold" style="margin: 0;">AI Coach</h3>
+                    <p class="text-xs text-muted" style="margin: 0;">Always active</p>
+                </div>
+                <div style="width: 8px; height: 8px; background: var(--primary-dark); border-radius: 50%;"></div>
+            </div>
+
+            <div class="chat-container" id="chat-scroller">
+                <div class="chat-message message-ai">
+                    Hello! I'm your sustainability coach. Ask me anything about reducing your carbon footprint!
+                </div>
+                
+                <div class="chat-message message-ai" style="background: rgba(79, 119, 45, 0.05); border: 1px dashed var(--fern);">
+                    <p class="text-xs font-bold" style="margin-bottom: 4px;">Suggestions:</p>
+                    <ul style="list-style: none; padding: 0; font-size: 0.75rem; color: var(--text-muted);">
+                        <li style="margin-bottom: 4px;">• "How can I reduce food waste?"</li>
+                        <li style="margin-bottom: 4px;">• "What's the best milk alternative?"</li>
+                        <li>• "Is aluminum more green than plastic?"</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <div class="chat-input-wrapper">
+                    <input type="text" class="chat-input" placeholder="Type your question..." disabled>
+                    <button class="btn btn-primary btn-sm" style="padding: 6px;" disabled>
+                        <i data-lucide="send" size="14"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-muted mt-4" style="text-align: center;">Coach functionality coming soon</p>
+            </div>
+        </aside>
     </div>
 
     <script src="{{ url_for('static', filename='app.js') }}"></script>

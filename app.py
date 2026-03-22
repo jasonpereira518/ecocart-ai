@@ -8,6 +8,8 @@ from werkzeug.utils import secure_filename
 from datetime import timedelta, datetime
 import google.generativeai as genai
 from PIL import Image
+import uuid
+from itertools import groupby
 
 # Load environment variables
 load_dotenv(find_dotenv())
@@ -77,10 +79,6 @@ def index():
         # Fetch Stats
         total_co2 = db.session.query(db.func.sum(Activity.kg_co2e)).filter_by(user_id=user.id).scalar() or 0.0
         
-        # Actions Today
-        today = datetime.utcnow().date()
-        actions_today = Activity.query.filter_by(user_id=user.id).filter(db.func.date(Activity.timestamp) == today).count()
-        
         # Recent Activities
         recent_activities = Activity.query.filter_by(user_id=user.id).order_by(Activity.timestamp.desc()).limit(5).all()
         
@@ -126,8 +124,8 @@ def index():
                              user=user_info, 
                              local_user=user, 
                              total_co2=round(total_co2, 2),
-                             actions_today=actions_today,
                              recent_activities=recent_activities,
+                             all_activities=Activity.query.filter_by(user_id=user.id).order_by(Activity.timestamp.desc()).all(),
                              trends=trends,
                              insights=insights)
     
@@ -188,12 +186,42 @@ def get_stats():
         "Walking": 30
     }
     
+    recent_activities = Activity.query.filter_by(user_id=user.id).order_by(Activity.timestamp.desc()).limit(5).all()
+    recent_list = [{"item_name": a.item_name, "kg_co2e": a.kg_co2e} for a in recent_activities]
+    
     return jsonify({
         "total_co2": round(total_co2, 2),
         "points": user.points,
         "trends": trends,
-        "name": user.name or user_info.get('name')
+        "name": user.name or user_info.get('name'),
+        "recent_activities": recent_list
     })
+
+@app.route('/api/history')
+def get_history():
+    user_info = session.get('user')
+    if not user_info:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    user = User.query.filter_by(auth0_id=user_info['sub']).one()
+    activities = Activity.query.filter_by(user_id=user.id).order_by(Activity.timestamp.desc()).all()
+    
+    # Group by receipt_id
+    grouped = []
+    for r_id, items in groupby(activities, key=lambda x: x.receipt_id):
+        item_list = list(items)
+        grouped.append({
+            "receipt_id": r_id or "Manual Entry",
+            "date": item_list[0].timestamp.strftime('%B %d, %Y'),
+            "total_co2": round(sum(item.kg_co2e for item in item_list), 2),
+            "items": [{
+                "name": item.item_name,
+                "category": item.category or "General",
+                "kg_co2e": round(item.kg_co2e, 2)
+            } for item in item_list]
+        })
+    
+    return jsonify({"history": grouped})
 
 @app.route('/api/activities')
 def get_activities():
@@ -203,6 +231,13 @@ def get_activities():
     
     user = User.query.filter_by(auth0_id=user_info['sub']).one()
     activities = Activity.query.filter_by(user_id=user.id).order_by(Activity.timestamp.desc()).limit(1).all()
+    
+    session['user'] = {
+        'sub': 'test_user_long_name_123',
+        'name': 'Alexandrovsky-Smith-Wellington-The-Third@extra-long-domain-name-that-definitely-overflows.com',
+        'given_name': 'Alexandrovsky-Smith-Wellington',
+        'email': 'extremely-long-email-address-for-testing-purposes@example.com'
+    }
     
     return jsonify([{
         "id": a.id,
@@ -260,6 +295,9 @@ def upload_file():
             
             user = User.query.filter_by(auth0_id=user_info['sub']).one()
             
+            # Generate a unique receipt ID for this batch
+            receipt_id = f"REF-{uuid.uuid4().hex[:8].upper()}"
+            
             # Save the analyzed activities
             for item in analysis_results:
                 new_activity = Activity(
@@ -267,7 +305,8 @@ def upload_file():
                     item_name=item.get('item_name', 'Unknown Item'),
                     kg_co2e=item.get('kg_co2e', 0.0),
                     category=item.get('category', 'Shopping'),
-                    user_id=user.id
+                    user_id=user.id,
+                    receipt_id=receipt_id
                 )
                 db.session.add(new_activity)
             
@@ -285,6 +324,46 @@ def upload_file():
             return jsonify({"error": str(e)}), 500
         
     return jsonify({"error": "Invalid file type"}), 400
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    user_info = session.get('user')
+    if not user_info:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    data = request.json
+    user_query = data.get('query')
+    if not user_query:
+        return jsonify({"error": "No query provided"}), 400
+        
+    user = User.query.filter_by(auth0_id=user_info['sub']).one()
+    
+    # Gather User Context
+    total_co2 = db.session.query(db.func.sum(Activity.kg_co2e)).filter_by(user_id=user.id).scalar() or 0.0
+    recent_activities = Activity.query.filter_by(user_id=user.id).order_by(Activity.timestamp.desc()).limit(15).all()
+    
+    history_summary = "\n".join([f"- {a.item_name} ({a.kg_co2e}kg CO2e) in {a.category or 'General'}" for a in recent_activities])
+    
+    system_prompt = f"""
+    You are the TerraCoach AI Sustainability Coach. Your goal is to help {user.name} reduce their carbon footprint.
+    User Context:
+    - Current Total Carbon Footprint: {total_co2:.2f} kg CO2e
+    - Points Earned: {user.points}
+    - Recent Activities:
+    {history_summary}
+    
+    Be supportive, insightful, and offer practical, specific advice based on their history.
+    If they ask about an item from their history, refer to it specifically.
+    Keep your responses relatively concise (1-3 small paragraphs).
+    """
+    
+    try:
+        chat_model = genai.GenerativeModel('gemini-2.5-flash')
+        response = chat_model.generate_content([system_prompt, f"User Question: {user_query}"])
+        return jsonify({"response": response.text})
+    except Exception as e:
+        print(f"Chat Error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
