@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_DEBUG=1
+      - DATABASE_URL=sqlite:///data/terracoach.db
+    restart: always
+
+volumes:
+  db-data:

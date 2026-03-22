@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TerraCoach - AI Sustainability Coach</title>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta name="description" content="TerraCoach: Your AI-driven behavior change platform for a sustainable future.">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo">
+                <i data-lucide="leaf"></i>
+                <span>TerraCoach</span>
+            </div>
+            
+            <nav class="nav-links">
+                <div class="nav-item">
+                    <a href="#" class="nav-link active" data-view="dashboard">
+                        <i data-lucide="layout-dashboard"></i>
+                        Dashboard
+                    </a>
+                </div>
+                <div class="nav-item">
+                    <a href="#" class="nav-link" data-view="log">
+                        <i data-lucide="camera"></i>
+                        Log Activity
+                    </a>
+                </div>
+                <div class="nav-item">
+                    <a href="#" class="nav-link" data-view="habits">
+                        <i data-lucide="repeat"></i>
+                        Habit Tracker
+                    </a>
+                </div>
+                <div class="nav-item">
+                    <a href="#" class="nav-link" data-view="insights">
+                        <i data-lucide="zap"></i>
+                        AI Insights
+                    </a>
+                </div>
+            </nav>
+
+            <div class="user-profile mt-4" style="margin-top: auto; border-top: 1px solid var(--border); padding-top: 1rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 32px; height: 32px; background: #e2e8f0; border-radius: 50%;"></div>
+                        <div>
+                            <p class="text-sm font-bold">{{ user.name or 'Alex Hunter' }}</p>
+                            <p class="text-xs text-muted">{{ local_user.streak_count or 0 }} Day Streak 🔥</p>
+                        </div>
+                    </div>
+                    <a href="/logout" class="text-xs text-muted" title="Logout">
+                        <i data-lucide="log-out" size="14"></i>
+                    </a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Core -->
+        <main class="main-content" id="main-view">
+            <!-- Dynamic Content Injected Here -->
+            <div id="view-content">
+                <!-- Dashboard View -->
+                <section id="view-dashboard" class="view-section active">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem;">
+                        <div>
+                            <h1 class="text-2xl">Good afternoon, {{ user.given_name or user.name or 'Explorer' }}!</h1>
+                            <p class="text-muted">
+                                {% if total_co2 > 0 %}
+                                You're making great progress this week.
+                                {% else %}
+                                Welcome! Start your journey by logging an activity.
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 1rem;">
+                            <button class="btn btn-outline" onclick="alert('Sharing coming soon!')">
+                                <i data-lucide="share-2"></i>
+                                Share
+                            </button>
+                            <button class="btn btn-primary" onclick="switchView('log')">
+                                <i data-lucide="plus"></i>
+                                Log Activity
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid-cols-3 mb-2" style="margin-bottom: 2rem;">
+                        <div class="card">
+                            <p class="text-xs text-muted font-bold uppercase">Estimated Carbon</p>
+                            <h2 class="text-2xl mt-4">{{ total_co2 }} <span class="text-sm font-normal">kg CO2e</span></h2>
+                            <p class="text-xs mt-2" style="color: var(--primary-dark);">
+                                {% if total_co2 > 0 %}
+                                ↓ 8% from last week
+                                {% else %}
+                                No data yet
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="card">
+                            <p class="text-xs text-muted font-bold uppercase">Current Streak</p>
+                            <h2 class="text-2xl mt-4">{{ local_user.streak_count or 0 }} <span class="text-sm font-normal">Days</span></h2>
+                            <p class="text-xs mt-2 text-muted">Keep it up! Log daily to grow.</p>
+                        </div>
+                        <div class="card">
+                            <p class="text-xs text-muted font-bold uppercase">Actions Today</p>
+                            <h2 class="text-2xl mt-4">{{ actions_today }} <span class="text-sm font-normal">Completed</span></h2>
+                            <p class="text-xs mt-2 text-muted">Next: Upload grocery receipt</p>
+                        </div>
+                    </div>
+
+                    {% if insights %}
+                    <div class="ai-tip mb-2" style="margin-bottom: 2rem;">
+                        <div class="ai-icon">
+                            <i data-lucide="sparkles"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm font-bold">AI Coach Perspective</p>
+                            <p class="text-sm">"{{ insights[0].text }}"</p>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="grid-cols-2">
+                        <section>
+                            <h3 class="text-lg mb-2">Recent Activities</h3>
+                            <div class="card" style="padding: 0;">
+                                {% if recent_activities %}
+                                    {% for activity in recent_activities %}
+                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 1rem; border-bottom: 1px solid var(--border);">
+                                        <div style="display: flex; gap: 0.75rem; align-items: center;">
+                                            <div style="background: #f1f5f9; padding: 0.5rem; border-radius: 8px;">
+                                                <i data-lucide="{% if activity.type == 'grocery' %}shopping-bag{% elif activity.type == 'travel' %}bike{% else %}activity{% endif %}" size="18"></i>
+                                            </div>
+                                            <div>
+                                                <p class="text-sm font-bold">{{ activity.item_name }}</p>
+                                                <p class="text-xs text-muted">{{ activity.category or 'General' }} • {{ activity.timestamp.strftime('%H:%M') }}</p>
+                                            </div>
+                                        </div>
+                                        <p class="text-sm font-bold {% if activity.kg_co2e < 0 %}text-primary-dark{% endif %}">
+                                            {{ "+" if activity.kg_co2e > 0 }}{{ activity.kg_co2e|round(2) }}kg
+                                        </p>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="text-sm text-muted" style="padding: 1.5rem;">No activities logged yet.</p>
+                                {% endif %}
+                            </div>
+                        </section>
+
+                        <section>
+                            <h3 class="text-lg mb-2">My Habits</h3>
+                            <div class="card">
+                                {% if trends %}
+                                    {% for category, amount in trends.items() %}
+                                    <div style="margin-bottom: 1rem;">
+                                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                            <p class="text-sm font-bold">{{ category }}</p>
+                                            <p class="text-xs">{{ amount|round(1) }}kg</p>
+                                        </div>
+                                        <div style="height: 6px; background: #e2e8f0; border-radius: 3px;">
+                                            <div style="width: {{ [100, (amount / (total_co2 or 1) * 100)]|min }}%; height: 100%; background: var(--primary-dark); border-radius: 3px;"></div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="text-sm text-muted">Upload receipts to track your habits.</p>
+                                {% endif %}
+                                <button class="btn btn-outline" style="width: 100%;" onclick="switchView('habits')">View All Habits</button>
+                            </div>
+                        </section>
+                    </div>
+                </section>
+
+                <!-- Log Activity View -->
+                <section id="view-log" class="view-section">
+                    <h1 class="text-2xl mb-2">Automated Carbon Logging</h1>
+                    <p class="text-muted mb-2">Upload your receipt and let our AI handle the rest.</p>
+                    
+                    <div class="mt-4">
+                        <div class="card" style="max-width: 600px; margin: 0 auto;">
+                            <h3 class="text-lg mb-2">Upload Receipt</h3>
+                            <div class="upload-dropzone" id="drop-zone">
+                                <i data-lucide="upload-cloud" size="48" style="color: var(--primary-dark); margin-bottom: 1rem;"></i>
+                                <p class="mt-4 text-sm font-bold">Drag and drop your grocery or retail receipt</p>
+                                <p class="text-xs text-muted mb-4">AI will automatically parse items for you.</p>
+                                <button class="btn btn-primary" style="width: 100%;">Click to Upload</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="ai-feedback" class="mt-4" style="display: none; max-width: 600px; margin: 1rem auto;">
+                        <div class="processing-container pulse">
+                            <div style="display: flex; gap: 1rem; align-items: center;">
+                                <i data-lucide="loader" class="pulse"></i>
+                                <p class="text-sm font-bold">AI Analyzing your receipt...</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Habits View -->
+                <section id="view-habits" class="view-section">
+                    <h1 class="text-2xl mb-2">Habit Formation & Trends</h1>
+                    <p class="text-muted mb-2">Tracking your behavioral shifts over time.</p>
+                    
+                    <div class="grid-cols-2 mt-4">
+                        <div class="card">
+                            <h3 class="text-lg mb-4">Usage Distribution</h3>
+                            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                {% if trends %}
+                                    {% for category, amount in trends.items() %}
+                                    <div>
+                                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                            <p class="text-sm font-bold">{{ category }}</p>
+                                            <p class="text-sm" style="color: var(--primary-dark);">{{ amount|round(1) }}kg</p>
+                                        </div>
+                                        <div style="height: 6px; background: #e2e8f0; border-radius: 3px;">
+                                            <div style="width: {{ [100, (amount / (total_co2 or 1) * 100)]|min }}%; height: 100%; background: var(--primary-dark); border-radius: 3px;"></div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="text-sm text-muted">No data available yet. Log some activities!</p>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <h3 class="text-lg mb-2">Behavioral Retention</h3>
+                            <p class="text-sm text-muted">You've reached a {{ local_user.streak_count or 0 }}-day streak of logging actions!</p>
+                            <div class="mt-4" style="display: flex; align-items: center; gap: 1rem;">
+                                <div style="width: 60px; height: 60px; border-radius: 50%; border: 4px solid var(--primary); display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--primary-dark);">
+                                    {{ local_user.streak_count or 0 }}/14
+                                </div>
+                                <div>
+                                    <p class="text-sm font-bold">Progress to Habit Badge</p>
+                                    <p class="text-xs text-muted">Next Milestone: "Eco-Conscious Commuter"</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Insights View -->
+                <section id="view-insights" class="view-section">
+                    <h1 class="text-2xl mb-2">AI Insights Hub</h1>
+                    <p class="text-muted mb-2">Deep dive into your behavioral patterns and carbon footprint.</p>
+                    
+                    <div class="grid-cols-2 mt-2">
+                        {% if insights %}
+                            {% for insight in insights %}
+                            <div class="card mt-2">
+                                <h3 class="text-lg mb-2">{{ insight.title }}</h3>
+                                <p class="text-sm text-muted">{{ insight.text }}</p>
+                                <div class="mt-4" style="display: flex; gap: 0.5rem;">
+                                    <span style="background: #f1f5f9; padding: 4px 8px; border-radius: 4px; font-size: 10px;">{{ insight.saving }}</span>
+                                    <span style="background: #f1f5f9; padding: 4px 8px; border-radius: 4px; font-size: 10px;">{{ insight.difficulty }}</span>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-sm text-muted">More insights will appear as you log activities.</p>
+                        {% endif %}
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
