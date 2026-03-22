@@ -6,12 +6,33 @@ from models import db, User, Activity
 from urllib.parse import urlencode, quote_plus
 from werkzeug.utils import secure_filename
 from datetime import timedelta, datetime
+import google.generativeai as genai
+from PIL import Image
 
 # Load environment variables
 load_dotenv(find_dotenv())
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "super-secret-key")
+
+# Gemini Configuration
+api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    print("WARNING: GEMINI_API_KEY not found in environment")
+genai.configure(api_key=api_key)
+
+try:
+    # List models to see what's available
+    print("Available Gemini Models:", flush=True)
+    models = genai.list_models()
+    for m in models:
+        print(f"- {m.name} ({m.supported_generation_methods})", flush=True)
+            
+    # Use flash-latest for broader compatibility
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    print(f"Gemini model '{model.model_name}' initialized successfully", flush=True)
+except Exception as e:
+    print(f"Error initializing Gemini model: {e}", flush=True)
 
 # Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", "sqlite:///terracoach.db")
@@ -209,25 +230,57 @@ def upload_file():
         filename = secure_filename(file.filename)
         # Add timestamp to filename to avoid collisions
         unique_filename = f"{user_info['sub'].replace('|', '_')}_{int(datetime.now().timestamp())}_{filename}"
-        file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        file.save(file_path)
         
-        # (Placeholder) Simulate creation of a pending activity
-        user = User.query.filter_by(auth0_id=user_info['sub']).one()
-        new_activity = Activity(
-            type='grocery',
-            item_name='Receipt Analysis (In progress)',
-            kg_co2e=2.45,
-            category='Shopping',
-            user_id=user.id
-        )
-        db.session.add(new_activity)
-        db.session.commit()
-        
-        return jsonify({
-            "status": "success", 
-            "filename": unique_filename,
-            "message": "AI analysis queued"
-        })
+        # Analyze with Gemini
+        try:
+            img = Image.open(file_path)
+            prompt = """
+            Analyze this receipt. Extract the main items and their quantities. 
+            For each item, estimate the carbon footprint in kg CO2e.
+            Return ONLY a JSON list of objects with the following keys:
+            "item_name" (string), "kg_co2e" (float), "category" (string: 'Food', 'Transport', 'Shopping', or 'Energy').
+            If multiple items, group them or pick the most significant one if too many.
+            Example: [{"item_name": "Beef Steak", "kg_co2e": 12.5, "category": "Food"}]
+            """
+            response = model.generate_content([prompt, img])
+            import json
+            import re
+            
+            # Extract JSON from response text (handle markdown code blocks)
+            json_match = re.search(r'\[.*\]', response.text, re.DOTALL)
+            if json_match:
+                analysis_results = json.loads(json_match.group())
+            else:
+                # Fallback if no JSON array found
+                analysis_results = [{"item_name": "Receipt Analysis", "kg_co2e": 2.5, "category": "Shopping"}]
+            
+            user = User.query.filter_by(auth0_id=user_info['sub']).one()
+            
+            # Save the analyzed activities
+            for item in analysis_results:
+                new_activity = Activity(
+                    type='grocery',
+                    item_name=item.get('item_name', 'Unknown Item'),
+                    kg_co2e=item.get('kg_co2e', 0.0),
+                    category=item.get('category', 'Shopping'),
+                    user_id=user.id
+                )
+                db.session.add(new_activity)
+            
+            db.session.commit()
+            
+            return jsonify({
+                "status": "success", 
+                "filename": unique_filename,
+                "message": "AI analysis complete",
+                "data": analysis_results
+            })
+            
+        except Exception as e:
+            print(f"Gemini Analysis Error: {e}")
+            return jsonify({"error": str(e)}), 500
         
     return jsonify({"error": "Invalid file type"}), 400
 

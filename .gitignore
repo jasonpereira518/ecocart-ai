@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env
+
+# Flask/SQLAlchemy
+instance/
+.pytest_cache/
+*.db
+*.sqlite3
+
+# Docker/System
+.dockerignore
+docker-compose.yml
+gunicorn.ctl
+*.ctl
+*.sock
+*.log
+
+# Project specific
+uploads/
+.gemini/
+.vscode/
+.idea/
+node_modules/
+temp/
+tmp/
+test.jpeg
+8757_ChatGPT_Image_*.png

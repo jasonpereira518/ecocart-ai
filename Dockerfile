@@ -1,5 +1,5 @@
 # Base image
-FROM python:3.14-slim
+FROM python:3.12-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -17,6 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install gunicorn
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/uploads
 
 # Copy project
 COPY . .
