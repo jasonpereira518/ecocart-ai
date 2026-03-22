@@ -46,17 +46,19 @@
             </nav>
 
             <div class="user-profile mt-4" style="margin-top: auto; border-top: 1px solid var(--border); padding-top: 1rem;">
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <div style="width: 32px; height: 32px; background: #e2e8f0; border-radius: 50%;"></div>
-                        <div>
-                            <p class="text-sm font-bold">{{ user.name or 'Alex Hunter' }}</p>
-                            <p class="text-xs text-muted">{{ local_user.streak_count or 0 }} Day Streak 🔥</p>
+                <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+                    <div style="width: 38px; height: 38px; background: rgba(255, 255, 255, 0.1); border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.1);">
+                        <i data-lucide="user" size="20"></i>
+                    </div>
+                    <div style="flex: 1;">
+                        <p class="text-sm font-bold">{{ user.name or user.given_name or 'Explorer' }}</p>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+                            <p class="text-xs text-muted" style="color: #a3b8a3;">{{ local_user.points or 0 }} TerraPoints</p>
+                            <a href="/logout" class="text-xs text-muted logout-link" title="Logout" style="color: #a3b8a3; transition: color 0.2s; display: inline-flex; align-items: center; margin-top: 1px;">
+                                <i data-lucide="log-out" size="14"></i>
+                            </a>
                         </div>
                     </div>
-                    <a href="/logout" class="text-xs text-muted" title="Logout">
-                        <i data-lucide="log-out" size="14"></i>
-                    </a>
                 </div>
             </div>
         </aside>
@@ -103,9 +105,9 @@
                             </p>
                         </div>
                         <div class="card">
-                            <p class="text-xs text-muted font-bold uppercase">Current Streak</p>
-                            <h2 class="text-2xl mt-4">{{ local_user.streak_count or 0 }} <span class="text-sm font-normal">Days</span></h2>
-                            <p class="text-xs mt-2 text-muted">Keep it up! Log daily to grow.</p>
+                            <p class="text-xs text-muted font-bold uppercase">Points Earned</p>
+                            <h2 class="text-2xl mt-4">{{ local_user.points or 0 }} <span class="text-sm font-normal">TerraPoints</span></h2>
+                            <p class="text-xs mt-2 text-muted">Keep logging to earn more!</p>
                         </div>
                         <div class="card">
                             <p class="text-xs text-muted font-bold uppercase">Actions Today</p>
@@ -142,7 +144,7 @@
                                                 <p class="text-xs text-muted">{{ activity.category or 'General' }} • {{ activity.timestamp.strftime('%H:%M') }}</p>
                                             </div>
                                         </div>
-                                        <p class="text-sm font-bold {% if activity.kg_co2e < 0 %}text-primary-dark{% endif %}">
+                                        <p class="text-sm font-bold {% if activity.kg_co2e > 5 %}text-high-impact{% elif activity.kg_co2e < 1.5 %}text-low-impact{% endif %}">
                                             {{ "+" if activity.kg_co2e > 0 }}{{ activity.kg_co2e|round(2) }}kg
                                         </p>
                                     </div>
@@ -232,15 +234,15 @@
                         </div>
 
                         <div class="card">
-                            <h3 class="text-lg mb-2">Behavioral Retention</h3>
-                            <p class="text-sm text-muted">You've reached a {{ local_user.streak_count or 0 }}-day streak of logging actions!</p>
+                            <h3 class="text-lg mb-2">Points Milestone</h3>
+                            <p class="text-sm text-muted">You've earned {{ local_user.points or 0 }} points for your sustainable actions!</p>
                             <div class="mt-4" style="display: flex; align-items: center; gap: 1rem;">
                                 <div style="width: 60px; height: 60px; border-radius: 50%; border: 4px solid var(--primary); display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--primary-dark);">
-                                    {{ local_user.streak_count or 0 }}/14
+                                    {{ (local_user.points or 0) % 100 }}/100
                                 </div>
                                 <div>
-                                    <p class="text-sm font-bold">Progress to Habit Badge</p>
-                                    <p class="text-xs text-muted">Next Milestone: "Eco-Conscious Commuter"</p>
+                                    <p class="text-sm font-bold">Progress to Next Level</p>
+                                    <p class="text-xs text-muted">Current Tier: "Eco-Apprentice"</p>
                                 </div>
                             </div>
                         </div>

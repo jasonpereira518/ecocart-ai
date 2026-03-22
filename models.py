@@ -9,7 +9,7 @@ class User(db.Model):
     auth0_id = db.Column(db.String(128), unique=True, nullable=False)
     name = db.Column(db.String(128))
     email = db.Column(db.String(128), unique=True)
-    streak_count = db.Column(db.Integer, default=0)
+    points = db.Column(db.Integer, default=0)
     last_login = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Relationship

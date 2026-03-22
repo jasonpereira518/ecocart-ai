@@ -190,7 +190,7 @@ def get_stats():
     
     return jsonify({
         "total_co2": round(total_co2, 2),
-        "streak": user.streak_count,
+        "points": user.points,
         "trends": trends,
         "name": user.name or user_info.get('name')
     })

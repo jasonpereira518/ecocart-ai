@@ -81,13 +81,14 @@ function displayAIResults(filename, data) {
             else if (item.category === 'Energy') icon = '⚡';
             
             // Format footprint coloring
+            // Format footprint coloring
             let fpColor = 'var(--text-muted)';
-            if (item.kg_co2e > 10) fpColor = 'var(--accent)';
-            else if (item.kg_co2e < 2) fpColor = 'var(--primary-dark)';
+            if (item.kg_co2e > 5) fpColor = 'var(--accent)';
+            else if (item.kg_co2e < 1.5) fpColor = 'var(--green-impact)';
             
             itemsHtml += `
                 <li>${icon} <span class="font-bold">${item.item_name}</span> 
-                → <span style="color: ${fpColor}; font-weight: 500;">${Number(item.kg_co2e).toFixed(2)} kg CO2e</span></li>
+                → <span style="color: ${fpColor}; font-weight: 700;">${Number(item.kg_co2e).toFixed(2)} kg CO2e</span></li>
             `;
         });
     } else {
