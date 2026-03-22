@@ -3,6 +3,9 @@ let __prevViewName = null;
 const LEADERBOARD_CACHE_TTL_MS = 30000;
 let __leaderboardCache = { at: 0, payload: null };
 
+/** Sent once with the next chat message; cleared after POST /api/chat */
+let currentChatReceiptContext = null;
+
 function showToast(message, type = 'info') {
     const c = document.getElementById('toast-container');
     if (!c || !message) return;
@@ -1811,7 +1814,7 @@ function renderHistoryDetailHtml(data, card) {
           )}">Get AI Swaps</button>`
         : '';
 
-    const askLabel = escapeAttr(card.getAttribute('data-receipt-label') || data.receipt_label || '');
+    const rkForAsk = card.getAttribute('data-receipt-key') || data.receipt_key || '';
 
     const swapsBlock =
         swapsHtml ||
@@ -1842,7 +1845,11 @@ function renderHistoryDetailHtml(data, card) {
                 </table>
             </div>
             <div class="history-detail-actions">
-                <button type="button" class="btn btn-primary btn-sm js-history-ask-ai" data-receipt-label="${askLabel}">Ask AI about this receipt</button>
+                <button type="button" onclick="window.askAIAboutReceipt && window.askAIAboutReceipt(${JSON.stringify(
+        rkForAsk
+    )})" style="padding:8px 16px; background:white; color:#4f772d; border:1px solid #4f772d; border-radius:8px; cursor:pointer; font-family:'Outfit',sans-serif; font-weight:600; font-size:0.85em; display:inline-flex; align-items:center; gap:6px;">
+                    <i data-lucide="message-circle" style="width:14px;height:14px;"></i> Ask AI about this receipt
+                </button>
                 ${genBtn}
             </div>
             <div class="history-detail-swaps">
@@ -2129,6 +2136,19 @@ async function loadLeaderboard() {
     }
 }
 
+function parseBadgeProgressPercent(progress) {
+    if (progress == null || progress === '') return 0;
+    const s = String(progress)
+        .replace(/\s*kg\s*$/i, '')
+        .trim();
+    const match = s.match(/([\d.]+)\s*\/\s*([\d.]+)/);
+    if (!match) return 0;
+    const cur = parseFloat(match[1]);
+    const need = parseFloat(match[2]);
+    if (!Number.isFinite(cur) || !Number.isFinite(need) || need <= 0) return 0;
+    return Math.min(100, Math.round((cur / need) * 100));
+}
+
 async function loadBadges() {
     const grid = document.getElementById('badges-grid');
     if (!grid) return;
@@ -2152,17 +2172,64 @@ async function loadBadges() {
 
         grid.innerHTML = list
             .map((b) => {
-                const earned = b.earned ? ' badge-card--earned' : '';
-                const lucide = (b.lucide || 'award').replace(/[^a-z0-9-]/gi, '');
+                const earned = Boolean(b.earned);
+                const cardCls = earned ? 'badge-card badge-card--earned' : 'badge-card';
+                const icon = escapeHtml(b.icon || '🏅');
+                const name = escapeHtml(b.name || 'Badge');
+                const description = escapeHtml(b.description || '');
+                const progressRaw = b.progress != null && b.progress !== '' ? String(b.progress) : '';
+                const progressEsc = escapeHtml(progressRaw);
+                const pct = parseBadgeProgressPercent(progressRaw);
+                const statusEarned = `
+                    <div style="display:inline-flex; align-items:center; gap:4px; font-size:0.75em; font-weight:600; color:#166534; background:#f0fdf4; padding:2px 8px; border-radius:4px;">
+                        ✅ Earned
+                    </div>`;
+                const statusLocked = progressRaw
+                    ? `
+                    <div style="font-size:0.75em; color:#9ca3af;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <div style="flex:1; min-width:0; background:#e5e7eb; border-radius:4px; height:5px; overflow:hidden;">
+                                <div style="background:#4f772d; height:100%; border-radius:4px; width:${pct}%;"></div>
+                            </div>
+                            <span style="flex-shrink:0;">${progressEsc}</span>
+                        </div>
+                    </div>`
+                    : `<div style="font-size:0.75em; color:#9ca3af;">🔒 Locked</div>`;
+
                 return `
-                <div class="badge-card${earned}" data-badge-name="${escapeAttr(b.name)}">
-                    <div class="badge-card-icon">
-                        <i data-lucide="${lucide}"></i>
-                        <span class="badge-emoji" aria-hidden="true">${escapeHtml(b.icon)}</span>
+                <div class="card ${cardCls}" data-badge-name="${escapeAttr(b.name)}" style="
+                    padding:16px;
+                    display:flex;
+                    align-items:flex-start;
+                    gap:12px;
+                    background:${earned ? 'white' : '#fafafa'};
+                    border:1px solid ${earned ? '#d3e0d4' : '#e5e7eb'};
+                    border-radius:12px;
+                    opacity:${earned ? '1' : '0.7'};
+                    ${earned ? 'box-shadow:0 2px 8px rgba(79,119,45,0.12);' : ''}
+                    cursor:default;
+                ">
+                    <div style="
+                        font-size:1.8em;
+                        width:44px;
+                        height:44px;
+                        display:flex;
+                        align-items:center;
+                        justify-content:center;
+                        border-radius:10px;
+                        background:${earned ? '#f0fdf4' : '#f3f4f6'};
+                        flex-shrink:0;
+                        ${earned ? '' : 'filter:grayscale(1);'}
+                    " aria-hidden="true">${icon}</div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-weight:700; font-size:0.9em; color:${earned ? '#132a13' : '#6b7280'}; margin-bottom:2px;">
+                            ${name}
+                        </div>
+                        <div style="font-size:0.8em; color:#6b7280; margin-bottom:6px; line-height:1.35;">
+                            ${description}
+                        </div>
+                        ${earned ? statusEarned : statusLocked}
                     </div>
-                    <p class="badge-card-name">${escapeHtml(b.name)}</p>
-                    <p class="badge-card-desc">${escapeHtml(b.description)}</p>
-                    <p class="badge-card-progress">${escapeHtml(b.progress)}</p>
                 </div>`;
             })
             .join('');
@@ -2172,7 +2239,6 @@ async function loadBadges() {
                 if (el.getAttribute('data-badge-name') === name) el.classList.add('badge-card--burst');
             });
         });
-        if (window.lucide) window.lucide.createIcons();
     } catch (e) {
         console.error(e);
         grid.innerHTML = '<p class="text-sm text-muted">Could not load badges.</p>';
@@ -2292,7 +2358,147 @@ function isChatMobileLayout() {
     return window.matchMedia(`(max-width: ${CHAT_BREAKPOINT}px)`).matches;
 }
 
-// AI Coach Chat Logic
+function askAIAboutReceipt(receiptKey) {
+    if (!receiptKey) return;
+
+    const openChatAndFocusInput = (chatInput) => {
+        ensureEcoCartChatVisible();
+        const chatSidebar = document.getElementById('right-chat-sidebar');
+        if (chatSidebar) {
+            chatSidebar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        const sug = document.getElementById('chat-suggestions');
+        if (sug && sug.dataset.removing !== '1') {
+            sug.dataset.removing = '1';
+            sug.dataset.chatHistoryPending = '';
+            sug.style.transition = 'opacity 0.3s, max-height 0.3s';
+            sug.style.opacity = '0';
+            sug.style.maxHeight = '0';
+            sug.style.overflow = 'hidden';
+            setTimeout(() => {
+                sug.remove();
+            }, 300);
+        }
+        if (chatInput) {
+            chatInput.focus();
+            if (chatInput.setSelectionRange) {
+                const len = chatInput.value.length;
+                chatInput.setSelectionRange(len, len);
+            }
+            const sendBtn =
+                document.getElementById('chat-send-btn') ||
+                document.querySelector('.chat-input-area .btn');
+            if (sendBtn) sendBtn.disabled = !chatInput.value.trim();
+            const scroller = document.getElementById('chat-scroller');
+            if (scroller) scroller.scrollTop = scroller.scrollHeight;
+        }
+    };
+
+    fetch(`/api/history/${encodeURIComponent(receiptKey)}`)
+        .then((res) => {
+            if (!res.ok) {
+                return fetch('/api/history')
+                    .then((r) => r.json())
+                    .then((data) => {
+                        const receipt = (data.history || []).find(
+                            (r) => String(r.receipt_key) === String(receiptKey)
+                        );
+                        if (!receipt) throw new Error('Receipt not found');
+                        return receipt;
+                    });
+            }
+            return res.json();
+        })
+        .then((receipt) => {
+            window.__chatFocusedReceiptId = null;
+            const items = (receipt.items || []).map((it) => ({
+                item_name: it.item_name || it.name || 'Item',
+                brand: (it.brand || '').trim(),
+                kg_co2e: it.kg_co2e != null ? Number(it.kg_co2e) : 0,
+            }));
+            const displayRef =
+                receipt.receipt_label || receipt.receipt_key || receiptKey;
+            let summary = `Here's what I bought on this receipt (${displayRef}):\n`;
+            items.forEach((item) => {
+                const brand = item.brand ? ` (${item.brand})` : '';
+                const co2 = item.kg_co2e ? ` — ${item.kg_co2e} kg CO₂e` : '';
+                summary += `• ${item.item_name}${brand}${co2}\n`;
+            });
+            let totalCo2 = receipt.total_co2;
+            if (totalCo2 == null) {
+                totalCo2 = items.reduce((sum, i) => sum + (i.kg_co2e || 0), 0);
+            } else {
+                totalCo2 = Number(totalCo2);
+            }
+            summary += `\nTotal: ${totalCo2.toFixed(2)} kg CO₂e`;
+            summary += `\n\nMy question: `;
+
+            currentChatReceiptContext = {
+                receipt_id: receipt.receipt_id ?? receipt.receipt_key ?? receiptKey,
+                items,
+                total_co2: totalCo2,
+            };
+
+            const chatInput =
+                document.getElementById('chat-input-field') ||
+                document.getElementById('chat-input') ||
+                document.querySelector('.chat-input');
+            if (chatInput) {
+                chatInput.value = summary;
+                if (chatInput.tagName === 'TEXTAREA') {
+                    chatInput.style.height = 'auto';
+                    chatInput.style.height = `${Math.min(chatInput.scrollHeight, 200)}px`;
+                }
+                openChatAndFocusInput(chatInput);
+                showToast('Receipt loaded — ask EcoCoach AI anything!', 'info');
+                if (window.lucide) window.lucide.createIcons();
+            } else {
+                console.error('Could not find chat input element');
+                const clip = summary;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(clip).then(() => {
+                        showToast('Receipt copied to clipboard — paste it in the chat!', 'info');
+                    });
+                }
+            }
+        })
+        .catch((err) => {
+            console.error('Error loading receipt for chat:', err);
+            currentChatReceiptContext = null;
+            const chatInput =
+                document.getElementById('chat-input-field') ||
+                document.getElementById('chat-input') ||
+                document.querySelector('.chat-input');
+            if (chatInput) {
+                chatInput.value = `About my receipt ${receiptKey}: `;
+                openChatAndFocusInput(chatInput);
+                if (chatInput.setSelectionRange) {
+                    const len = chatInput.value.length;
+                    chatInput.setSelectionRange(len, len);
+                }
+            }
+            showToast('Could not load receipt details, but you can still ask about it!', 'info');
+        });
+}
+
+window.askAIAboutReceipt = askAIAboutReceipt;
+
+const ECO_COACH_WELCOME =
+    "Hi! I'm EcoCoach AI. Ask me about your grocery footprint, swaps, or greener shopping.";
+
+function ecoCoachSuggestionBlockHtml() {
+    return `<div class="chat-message message-ai chat-suggestions-block" id="chat-suggestions">
+        <p class="text-xs font-bold" style="margin-bottom: 8px;">Try asking EcoCoach AI:</p>
+        <div class="chat-suggestion-chips">
+            <button type="button" class="chat-suggestion-chip" data-prompt="What's my biggest carbon impact?">What's my biggest carbon impact?</button>
+            <button type="button" class="chat-suggestion-chip" data-prompt="Suggest swaps for my last receipt">Suggest swaps for my last receipt</button>
+            <button type="button" class="chat-suggestion-chip" data-prompt="How does beef compare to chicken?">How does beef compare to chicken?</button>
+            <button type="button" class="chat-suggestion-chip" data-prompt="Tips for a greener grocery list">Tips for a greener grocery list</button>
+        </div>
+    </div>`;
+}
+
+// EcoCoach AI chat
 function initChat() {
     const chatSidebar = document.getElementById('right-chat-sidebar');
     const chatInput = document.getElementById('chat-input-field') || document.querySelector('.chat-input');
@@ -2303,7 +2509,7 @@ function initChat() {
     const backdrop = document.getElementById('chat-modal-backdrop');
     const collapseBtn = document.getElementById('chat-collapse-btn');
     const mobileCloseBtn = document.getElementById('chat-mobile-close-btn');
-    const soonHint = document.querySelector('.chat-soon-hint');
+    const clearChatBtn = document.getElementById('clear-chat-btn');
 
     if (!chatInput || !sendBtn || !scroller || !chatMessages || !chatSidebar) return;
 
@@ -2344,7 +2550,6 @@ function initChat() {
     }
 
     chatInput.disabled = false;
-    if (soonHint) soonHint.style.display = 'none';
 
     let chatTypingTimer = null;
     let chatSendReady = true;
@@ -2363,6 +2568,10 @@ function initChat() {
     }
     chatInput.addEventListener('input', () => {
         scheduleChatSendEnable();
+        if (chatInput.tagName === 'TEXTAREA') {
+            chatInput.style.height = 'auto';
+            chatInput.style.height = `${Math.min(chatInput.scrollHeight, 200)}px`;
+        }
     });
     syncChatSendEnabled();
 
@@ -2384,7 +2593,7 @@ function initChat() {
         wrap.className = 'chat-message message-ai chat-typing-indicator';
         wrap.innerHTML =
             '<span class="typing-dot" aria-hidden="true"></span><span class="typing-dot" aria-hidden="true"></span><span class="typing-dot" aria-hidden="true"></span>';
-        wrap.setAttribute('aria-label', 'Assistant is typing');
+        wrap.setAttribute('aria-label', 'EcoCoach AI is typing');
         chatMessages.appendChild(wrap);
         scrollChatToBottom();
         return wrap;
@@ -2474,18 +2683,14 @@ function initChat() {
         try {
             const response = await fetch('/api/chat-history');
             if (response.status === 401) {
-                appendMessage(
-                    'ai',
-                    "Hi! I'm your EcoCart AI assistant. Ask me about your grocery footprint, swaps, or greener shopping."
-                );
+                appendMessage('ai', ECO_COACH_WELCOME);
+                revealChatSuggestionsForEmptyState();
                 return;
             }
             const data = await response.json();
             if (!Array.isArray(data) || data.length === 0) {
-                appendMessage(
-                    'ai',
-                    "Hi! I'm your EcoCart AI assistant. Ask me about your grocery footprint, swaps, or greener shopping."
-                );
+                appendMessage('ai', ECO_COACH_WELCOME);
+                revealChatSuggestionsForEmptyState();
                 return;
             }
             data.forEach((row) => {
@@ -2494,14 +2699,53 @@ function initChat() {
             });
         } catch (e) {
             console.warn('Chat history load failed', e);
-            appendMessage(
-                'ai',
-                "Hi! I'm your EcoCart AI assistant. Ask me about your grocery footprint, swaps, or greener shopping."
-            );
+            appendMessage('ai', ECO_COACH_WELCOME);
+            revealChatSuggestionsForEmptyState();
         }
     }
 
     loadChatHistory();
+
+    async function performChatClear() {
+        try {
+            const res = await fetch('/api/chat/clear', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            let data = {};
+            try {
+                data = await res.json();
+            } catch {
+                /* ignore */
+            }
+            if (!res.ok) throw new Error(data.error || 'Failed to clear chat');
+            chatMessages.innerHTML = '';
+            document.getElementById('chat-suggestions')?.remove();
+            chatInput.value = '';
+            if (chatInput.tagName === 'TEXTAREA') {
+                chatInput.style.height = 'auto';
+                chatInput.style.height = '40px';
+            }
+            currentChatReceiptContext = null;
+            chatSendReady = true;
+            syncChatSendEnabled();
+            appendMessage('ai', ECO_COACH_WELCOME);
+            scroller.insertAdjacentHTML('beforeend', ecoCoachSuggestionBlockHtml());
+            if (window.lucide) window.lucide.createIcons();
+            scrollChatToBottom();
+            showToast('Chat cleared', 'info');
+        } catch (e) {
+            console.error(e);
+            showToast(e.message || 'Failed to clear chat', 'error');
+        }
+    }
+
+    window.clearChat = function clearChat() {
+        if (!confirm('Clear all chat history? This cannot be undone.')) return;
+        void performChatClear();
+    };
+
+    clearChatBtn?.addEventListener('click', () => window.clearChat());
 
     async function handleSend() {
         const query = chatInput.value.trim();
@@ -2511,12 +2755,22 @@ function initChat() {
 
         let payloadQuery = query;
         const rid = window.__chatFocusedReceiptId;
-        if (rid) {
+        if (rid && !currentChatReceiptContext) {
             payloadQuery = `Regarding my receipt ${rid}: ${query}`;
+        }
+
+        const payload = { query: payloadQuery };
+        if (currentChatReceiptContext) {
+            payload.receipt_context = currentChatReceiptContext;
+            currentChatReceiptContext = null;
         }
 
         appendMessage('user', query);
         chatInput.value = '';
+        if (chatInput.tagName === 'TEXTAREA') {
+            chatInput.style.height = 'auto';
+            chatInput.style.height = '40px';
+        }
         syncChatSendEnabled();
 
         const typingEl = appendTypingIndicator();
@@ -2525,7 +2779,7 @@ function initChat() {
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: payloadQuery }),
+                body: JSON.stringify(payload),
             });
             let result;
             try {
@@ -2555,32 +2809,38 @@ function initChat() {
             }
         } catch (err) {
             typingEl.remove();
-            showToast('Error connecting to EcoCart AI.', 'error');
-            appendMessage('ai', 'Error connecting to EcoCart AI.');
+            showToast('Error connecting to EcoCoach AI.', 'error');
+            appendMessage('ai', 'Error connecting to EcoCoach AI.');
         }
     }
 
+    window.__ecoCoachSendSuggestion = function sendSuggestion(text) {
+        if (!text) return;
+        chatInput.value = text;
+        chatSendReady = true;
+        syncChatSendEnabled();
+        handleSend();
+    };
+    window.sendSuggestion = function (text) {
+        window.__ecoCoachSendSuggestion?.(text);
+    };
+
     sendBtn.addEventListener('click', handleSend);
     chatInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            if (!chatInput.value.trim() || !chatSendReady) {
-                e.preventDefault();
-                return;
-            }
-            handleSend();
-        }
+        if (e.key !== 'Enter') return;
+        if (e.shiftKey) return;
+        e.preventDefault();
+        if (!chatInput.value.trim() || !chatSendReady) return;
+        handleSend();
     });
 
-    document.querySelectorAll('.chat-suggestion-chip').forEach((chip) => {
-        chip.addEventListener('click', () => {
-            const p = chip.getAttribute('data-prompt');
-            if (p) {
-                chatInput.value = p;
-                chatSendReady = true;
-                syncChatSendEnabled();
-                handleSend();
-            }
-        });
+    scroller.addEventListener('click', (e) => {
+        const chip = e.target.closest('.chat-suggestion-chip');
+        if (!chip || !scroller.contains(chip)) return;
+        const p = chip.getAttribute('data-prompt');
+        if (!p) return;
+        e.preventDefault();
+        window.__ecoCoachSendSuggestion(p);
     });
 
     const historyContainer = document.getElementById('history-container');
@@ -2590,16 +2850,6 @@ function initChat() {
             if (genBtn) {
                 e.preventDefault();
                 runHistoryGenerateSwaps(genBtn);
-                return;
-            }
-            const askBtn = e.target.closest('.js-history-ask-ai');
-            if (askBtn) {
-                e.preventDefault();
-                const label = askBtn.getAttribute('data-receipt-label') || '';
-                window.__chatFocusedReceiptId = label.trim() ? label.trim() : null;
-                ensureEcoCartChatVisible();
-                chatInput.focus();
-                chatSidebar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 return;
             }
             const hdr = e.target.closest('.history-card-header');

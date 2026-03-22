@@ -4,8 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EcoCart AI — Grocery sustainability</title>
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
-    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f772d'/%3E%3Cpath d='M8 10h2l3 10h8l3-7H12' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='14' cy='23' r='1.5' fill='white'/%3E%3Ccircle cx='21' cy='23' r='1.5' fill='white'/%3E%3Cpath d='M20 7c2 0 3 1 3 3s-2 4-5 4' stroke='%2390a955' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
     <meta name="description" content="EcoCart AI: AI-powered grocery sustainability — receipt analysis, carbon footprints, and greener choices.">
     <meta property="og:title" content="EcoCart AI">
@@ -177,7 +176,7 @@
                             <i data-lucide="sparkles"></i>
                         </div>
                         <div>
-                            <p class="text-sm font-bold">AI Coach Perspective</p>
+                            <p class="text-sm font-bold">EcoCoach AI perspective</p>
                             <p class="text-sm">"{{ insights[0].text }}"</p>
                         </div>
                     </div>
@@ -262,10 +261,12 @@
                                     {% endfor %}
                                 </div>
                             </div>
-
-                            <h3 class="text-lg mb-2 mt-4">Your badges</h3>
-                            <div class="badges-grid" id="badges-grid" aria-live="polite"></div>
                         </section>
+                    </div>
+
+                    <div id="badges-section" style="margin:24px 0;">
+                        <h3 style="font-size:1em; font-weight:700; color:#132a13; margin-bottom:12px;">Your Badges</h3>
+                        <div id="badges-grid" aria-live="polite"></div>
                     </div>
 
                     <h3 class="text-lg mb-2 mt-4">Your Highest-Impact Items</h3>
@@ -513,7 +514,7 @@
                 </section>
             </div>
 
-            <button type="button" id="chat-fab" class="chat-fab" aria-label="Open EcoCart AI chat" hidden>
+            <button type="button" id="chat-fab" class="chat-fab" aria-label="Open EcoCoach AI" hidden>
                 <i data-lucide="message-circle"></i>
             </button>
 
@@ -541,15 +542,21 @@
 
         <div id="chat-modal-backdrop" class="chat-modal-backdrop" aria-hidden="true" hidden></div>
 
-        <!-- EcoCart AI chat (sidebar on wide screens, overlay on small) -->
+        <!-- EcoCoach AI chat (sidebar on wide screens, overlay on small) -->
         <aside id="right-chat-sidebar" class="right-sidebar">
             <div class="right-sidebar-inner">
                 <div class="chat-sidebar-header">
-                    <div>
-                        <h3 class="text-sm font-bold chat-sidebar-title">EcoCart AI</h3>
-                        <p class="text-xs text-muted" style="margin: 0;">Sustainability assistant</p>
+                    <div style="min-width: 0;">
+                        <h3 class="text-sm font-bold chat-sidebar-title" style="display: flex; align-items: center; gap: 8px; margin: 0;">
+                            EcoCoach AI
+                            <span class="ec-coach-status-dot" aria-hidden="true"></span>
+                        </h3>
+                        <p class="text-xs text-muted" style="margin: 4px 0 0 0;">Grocery sustainability coach</p>
                     </div>
                     <div class="chat-header-actions">
+                        <button type="button" id="clear-chat-btn" class="chat-icon-btn ec-clear-chat-btn" aria-label="Clear conversation" title="Clear conversation">
+                            <i data-lucide="trash-2" style="width:16px;height:16px;"></i>
+                        </button>
                         <button type="button" id="chat-collapse-btn" class="chat-icon-btn" aria-label="Collapse chat panel" title="Collapse">
                             <i data-lucide="chevron-left"></i>
                         </button>
@@ -562,7 +569,7 @@
                 <div class="chat-container" id="chat-scroller">
                     <div id="chat-messages"></div>
                     <div class="chat-message message-ai chat-suggestions-block" id="chat-suggestions">
-                        <p class="text-xs font-bold" style="margin-bottom: 8px;">Try asking:</p>
+                        <p class="text-xs font-bold" style="margin-bottom: 8px;">Try asking EcoCoach AI:</p>
                         <div class="chat-suggestion-chips">
                             <button type="button" class="chat-suggestion-chip" data-prompt="What's my biggest carbon impact?">What's my biggest carbon impact?</button>
                             <button type="button" class="chat-suggestion-chip" data-prompt="Suggest swaps for my last receipt">Suggest swaps for my last receipt</button>
@@ -574,12 +581,11 @@
 
                 <div class="chat-input-area">
                     <div class="chat-input-wrapper">
-                        <input type="text" id="chat-input-field" class="chat-input" placeholder="Ask about your groceries..." disabled autocomplete="off">
-                        <button type="button" id="chat-send-btn" class="btn btn-primary btn-sm" style="padding: 6px;" disabled>
+                        <textarea id="chat-input-field" class="chat-input" placeholder="Ask EcoCoach AI anything…" rows="1" disabled autocomplete="off" style="width:100%; resize:none; border:1px solid #d3e0d4; border-radius:8px; padding:10px 12px; font-family:'Outfit',sans-serif; font-size:0.9em; line-height:1.4; min-height:40px; max-height:200px; overflow-y:auto; background:var(--bg-sheet);"></textarea>
+                        <button type="button" id="chat-send-btn" class="btn btn-primary btn-sm" style="padding: 6px; flex-shrink:0; align-self:flex-end;" disabled>
                             <i data-lucide="send" size="14"></i>
                         </button>
                     </div>
-                    <p class="text-xs text-muted mt-4 chat-soon-hint" style="text-align: center;">Coach functionality coming soon</p>
                 </div>
             </div>
         </aside>

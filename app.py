@@ -1014,13 +1014,13 @@ def api_user_badges():
     saved = float(user.total_co2_saved or 0)
 
     def prog(cur, need):
-        return f"{min(cur, need)}/{need}"
+        return f"{min(int(cur), int(need))}/{need}"
 
     badges = [
         {
             "name": "First Scan",
-            "icon": "📷",
-            "description": "Upload your first receipt.",
+            "icon": "📸",
+            "description": "Upload your very first grocery receipt.",
             "earned": has_receipt_activity,
             "progress": "1/1" if has_receipt_activity else "0/1",
             "lucide": "scan-line",
@@ -1028,15 +1028,15 @@ def api_user_badges():
         {
             "name": "Carbon Tracker",
             "icon": "📊",
-            "description": "Log 10 distinct receipts.",
+            "description": "Track 10 or more receipts to master your footprint.",
             "earned": n_receipts >= 10,
             "progress": prog(n_receipts, 10),
             "lucide": "bar-chart-2",
         },
         {
             "name": "Swap Star",
-            "icon": "⭐",
-            "description": "Accept 5 swap recommendations.",
+            "icon": "🔄",
+            "description": "Accept 5 eco-friendly swap recommendations.",
             "earned": n_accepted >= 5,
             "progress": prog(n_accepted, 5),
             "lucide": "repeat",
@@ -1044,31 +1044,31 @@ def api_user_badges():
         {
             "name": "Streak Master",
             "icon": "🔥",
-            "description": "Reach a 7-day login streak.",
+            "description": "Maintain a 7-day activity streak.",
             "earned": streak >= 7,
             "progress": prog(streak, 7),
             "lucide": "flame",
         },
         {
             "name": "Eco Warrior",
-            "icon": "🌿",
-            "description": "Save 50 kg CO2e (accepted swaps).",
+            "icon": "🌍",
+            "description": "Save 50 kg of CO₂ through greener choices.",
             "earned": saved >= 50,
-            "progress": f"{min(saved, 50):.0f}/50 kg",
+            "progress": f"{min(round(saved, 1), 50)}/50 kg",
             "lucide": "leaf",
         },
         {
             "name": "Century Saver",
             "icon": "💯",
-            "description": "Save 100 kg CO2e (accepted swaps).",
+            "description": "Reach the 100 kg CO₂ saved milestone.",
             "earned": saved >= 100,
-            "progress": f"{min(saved, 100):.0f}/100 kg",
+            "progress": f"{min(round(saved, 1), 100)}/100 kg",
             "lucide": "trophy",
         },
         {
             "name": "Upload Legend",
             "icon": "🏆",
-            "description": "Log 25 distinct receipts.",
+            "description": "Scan 25 receipts — you're a sustainability champion.",
             "earned": n_receipts >= 25,
             "progress": prog(n_receipts, 25),
             "lucide": "award",
@@ -1848,6 +1848,19 @@ def chat_history():
     return jsonify(out)
 
 
+@app.route("/api/chat/clear", methods=["POST"])
+def clear_chat():
+    user_info = session.get("user")
+    if not user_info:
+        return jsonify({"error": "Unauthorized"}), 401
+    user = User.query.filter_by(auth0_id=user_info["sub"]).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    ChatMessage.query.filter_by(user_id=user.id).delete()
+    db.session.commit()
+    return jsonify({"status": "ok", "message": "Chat history cleared"})
+
+
 @app.route('/api/chat', methods=['POST'])
 def chat():
     user_info = session.get('user')
@@ -1902,7 +1915,40 @@ def chat():
     level = _eco_level_from_points(user.points)
     points = int(user.points or 0)
 
-    system_prompt = f"""You are the EcoCart AI sustainability assistant. Help {resolve_display_name(user, user_info)} reduce grocery-related carbon impact using the data below.
+    receipt_context = data.get("receipt_context")
+    receipt_extra = ""
+    if receipt_context and isinstance(receipt_context, dict):
+        items = receipt_context.get("items") or []
+        lines = []
+        for i in items:
+            if not isinstance(i, dict):
+                continue
+            nm = i.get("item_name") or i.get("name") or "Item"
+            br = (i.get("brand") or "").strip() or "Unknown"
+            kg = i.get("kg_co2e")
+            if kg is None:
+                lines.append(f"- {nm} ({br})")
+            else:
+                lines.append(f"- {nm} ({br}): {kg} kg CO2e")
+        items_text = "\n".join(lines) if lines else "- (no line items)"
+        rid = receipt_context.get("receipt_id", "unknown")
+        tot = receipt_context.get("total_co2", 0)
+        try:
+            tot_f = float(tot)
+        except (TypeError, ValueError):
+            tot_f = 0.0
+        receipt_extra = f"""
+
+The user is asking about a specific receipt ({rid}):
+{items_text}
+Total: {tot_f:.2f} kg CO2e
+"""
+
+    system_prompt = f"""You are EcoCoach AI, a friendly and knowledgeable grocery sustainability coach built into the EcoCart AI platform. You help users understand their grocery carbon footprint and make greener choices.
+
+Your personality: concise, encouraging, practical. Celebrate wins, give specific brand recommendations, and never lecture or guilt-trip. When recommending products, always include real brand names. Cite approximate kg CO₂e values when discussing carbon impact. Keep responses under 150 words unless the user asks for detail.
+
+You are helping: {resolve_display_name(user, user_info)}
 
 User context:
 - EcoCart level: {level} (from EcoPoints: {points})
@@ -1912,9 +1958,9 @@ User context:
 - Recent purchase line items (up to 15, newest first):
 {history_summary}
 - Recent swap recommendations the app has suggested (may be empty):
-{swaps_summary}
+{swaps_summary}{receipt_extra}
 
-Instructions: Be concise, friendly, and actionable. When recommending products, include specific brand names. If asked about carbon footprints, cite approximate kg CO2e values. Keep responses under 150 words unless the user asks for detail."""
+Stay on topic for grocery sustainability, receipts, swaps, and climate-friendly shopping."""
 
     try:
         response = model.generate_content([system_prompt, f"User question: {user_query}"])

@@ -157,6 +157,19 @@ body.chat-mobile-open {
     color: var(--fern);
 }
 
+.ec-coach-status-dot {
+    width: 8px;
+    height: 8px;
+    background: #22c55e;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.ec-clear-chat-btn:hover {
+    background: rgba(239, 68, 68, 0.12) !important;
+    color: #ef4444 !important;
+}
+
 .chat-mobile-only {
     display: none;
 }
@@ -531,12 +544,17 @@ body.chat-mobile-open {
 
 .chat-input {
     flex: 1;
+    min-width: 0;
     background: transparent;
     border: none;
     padding: 0.5rem;
     font-size: 0.875rem;
     font-family: inherit;
     outline: none;
+}
+
+textarea.chat-input {
+    align-self: flex-end;
 }
 
 /* Mobile Responsive — chat becomes full-screen overlay; FAB opens it */
@@ -1166,71 +1184,36 @@ body.chat-mobile-open {
     width: calc(100% - 2rem);
 }
 
-/* Badges */
-.badges-grid {
+/* Badges — full-width horizontal grid under dashboard split */
+#badges-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    width: 100%;
+}
+
+@media (max-width: 768px) {
+    #badges-grid {
+        grid-template-columns: 1fr !important;
+        gap: 10px !important;
+    }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+    #badges-grid {
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)) !important;
+    }
 }
 
 .badge-card {
-    border-radius: var(--radius);
-    padding: 1rem 0.85rem;
-    border: 1px solid var(--border);
-    background: var(--bg-sheet);
-    text-align: center;
-    transition: box-shadow 0.25s ease, transform 0.2s ease, opacity 0.2s ease;
-    opacity: 0.72;
-}
-
-.badge-card--earned {
-    opacity: 1;
-    border-color: rgba(79, 119, 45, 0.35);
-    background: linear-gradient(160deg, #ffffff 0%, #f2faf0 100%);
-    box-shadow: 0 4px 20px -4px rgba(79, 119, 45, 0.35);
-}
-
-.badge-card-icon {
     position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 0.5rem;
-    color: var(--text-muted);
+    overflow: visible;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.badge-card--earned .badge-card-icon {
-    color: var(--fern);
-}
-
-.badge-card-icon .badge-emoji {
-    position: absolute;
-    bottom: -2px;
-    right: calc(50% - 28px);
-    font-size: 0.9rem;
-}
-
-.badge-card-name {
-    font-size: 0.8rem;
-    font-weight: 700;
-    margin-bottom: 0.25rem;
-}
-
-.badge-card-desc {
-    font-size: 0.65rem;
-    color: var(--text-muted);
-    line-height: 1.35;
-    margin-bottom: 0.35rem;
-}
-
-.badge-card-progress {
-    font-size: 0.65rem;
-    font-weight: 600;
-    color: var(--fern);
-}
-
-.badge-card:not(.badge-card--earned) .badge-card-progress {
-    color: var(--text-muted);
+.badge-card--earned:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(79, 119, 45, 0.18) !important;
 }
 
 /* —— Purchase history (EcoCart) —— */
@@ -1640,11 +1623,6 @@ body.chat-mobile-open {
     display: inline-block;
     transform-origin: center bottom;
     transition: transform 0.35s ease;
-}
-
-.badge-card {
-    position: relative;
-    overflow: visible;
 }
 
 .badge-card--burst::after {

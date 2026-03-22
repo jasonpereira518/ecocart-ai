@@ -1,4 +1,4 @@
-# 🌿 EcoCart AI
+# 🌱 EcoCart AI
 
 **AI-powered grocery sustainability — from receipt to 3D store navigation.**
 
@@ -17,8 +17,8 @@ Brand-for-brand alternatives for your highest-impact items. Not "replace beef wi
 ### 🛒 3D Supermarket Navigation
 A Three.js-powered 3D model of a real grocery store built from an actual floorplan. Select items from your receipt and generate an optimized walking route with zero backtracking using a zone-based sweep algorithm.
 
-### 💬 AI Sustainability Coach
-Persistent Gemini-powered chat sidebar with full context of your purchase history. Ask anything about your carbon footprint, get personalized tips, or compare products.
+### 💬 EcoCoach AI
+Persistent Gemini-powered chat sidebar (EcoCoach AI) with full context of your purchase history. Ask anything about your carbon footprint, get personalized tips, or compare products.
 
 ### 🏆 Gamification & Leaderboard
 Points, streaks, badges (Seedling → Guardian), and a global leaderboard that turns carbon reduction into a community challenge.
@@ -137,7 +137,8 @@ ecocart-ai/
 | `POST` | `/api/upload` | Upload receipt image → Gemini parse → save items |
 | `POST` | `/api/generate-swaps` | Generate brand-level swap recommendations |
 | `POST` | `/api/accept-swap` | Accept a swap → earn points + CO₂ savings |
-| `POST` | `/api/chat` | Send message to AI coach → Gemini response |
+| `POST` | `/api/chat` | Send message to EcoCoach AI → Gemini response |
+| `POST` | `/api/chat/clear` | Clear all chat messages for the current user |
 | `GET` | `/api/chat-history` | Last 20 chat messages |
 | `GET` | `/api/leaderboard` | Top 20 users ranked by points |
 | `GET` | `/api/user/badges` | User's badge progress |
