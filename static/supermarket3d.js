@@ -24,6 +24,34 @@ const stopMarkers = [];
 const RAY = new THREE.Raycaster();
 const POINTER = new THREE.Vector2();
 
+// ============ FIRST PERSON MODE ============
+let fpMode = false;
+let fpMoveForward = false;
+let fpMoveBackward = false;
+let fpMoveLeft = false;
+let fpMoveRight = false;
+let fpYaw = 0;
+let fpPitch = 0;
+let fpLookDragging = false;
+let fpLastMouseX = 0;
+let fpLastMouseY = 0;
+const fpHeight = 1.7;
+let fpSpeed = 12;
+const fpSprintMultiplier = 1.8;
+let fpSprinting = false;
+const fpPosition = new THREE.Vector3(35, fpHeight, 58);
+let fpBobPhase = 0;
+const fpBobAmount = 0.03;
+let loopPrevTime = performance.now();
+let collisionBoxes = [];
+let autoWalking = false;
+let autoWalkIndex = 0;
+let autoWalkProgress = 0;
+let fpTouchId = null;
+let fpTouchStartX = 0;
+let fpTouchStartY = 0;
+let fpMoveTouchId = null;
+
 function getContainer() {
     return document.getElementById('supermarket-canvas-container');
 }
@@ -207,6 +235,7 @@ function wireUi() {
                 .join('');
             side.querySelectorAll('.sm-stop-row').forEach((row) => {
                 row.addEventListener('click', () => {
+                    if (fpMode) return;
                     const x = parseFloat(row.dataset.x);
                     const z = parseFloat(row.dataset.z);
                     animateCameraTo(new THREE.Vector3(x + 8, 28, z + 12), new THREE.Vector3(x, 0, z));
@@ -214,6 +243,9 @@ function wireUi() {
             });
         }
     });
+
+    document.getElementById('sm-mode-overview')?.addEventListener('click', () => exitFirstPerson());
+    document.getElementById('sm-mode-firstperson')?.addEventListener('click', () => enterFirstPerson());
 }
 
 function escapeHtml(s) {
@@ -225,11 +257,16 @@ function escapeHtml(s) {
 async function populateItemChecklist() {
     const list = document.getElementById('sm-item-checklist');
     if (!list) return;
+    const wantSmart = window.smartListItemsForStore;
+    const sourceEl = document.getElementById('sm-item-source');
+    if (wantSmart?.length && sourceEl) {
+        sourceEl.value = 'custom';
+    }
     list.innerHTML = '<p style="color:#9ca3af;font-size:0.85em;margin:0;">Loading…</p>';
-    const mode = document.getElementById('sm-item-source')?.value || 'latest';
+    const mode = sourceEl?.value || 'latest';
     try {
         let html = '';
-        if (mode === 'latest') {
+        if (mode === 'latest' && !wantSmart?.length) {
             const res = await fetch('/api/supermarket/latest-receipt-items');
             const data = res.ok ? await res.json() : { items: [] };
             if (data.items?.length) {
@@ -255,6 +292,16 @@ async function populateItemChecklist() {
             });
         }
         list.innerHTML = html || '<p style="color:#9ca3af;font-size:0.85em;">No items</p>';
+        if (wantSmart?.length && html) {
+            list.querySelectorAll('label').forEach((label) => {
+                const cb = label.querySelector('.sm-route-cb');
+                if (!cb) return;
+                const text = (label.textContent || '').toLowerCase();
+                const hit = wantSmart.some((n) => n && text.includes(String(n).toLowerCase()));
+                cb.checked = hit;
+            });
+            window.smartListItemsForStore = null;
+        }
     } catch {
         list.innerHTML = '<p style="color:#9ca3af;font-size:0.85em;">Could not load items.</p>';
     }
@@ -278,6 +325,7 @@ function applyEcoHighlight(on) {
 }
 
 function onCanvasClick(event) {
+    if (fpMode) return;
     if (!camera || !scene || !productMeshes.length) return;
     const container = getContainer();
     if (!container) return;
@@ -312,6 +360,582 @@ function hideProductPopup() {
         popup.style.display = 'none';
         popup.innerHTML = '';
     }
+}
+
+function buildCollisionBoxes() {
+    collisionBoxes = [];
+    collisionBoxes.push({ minX: -1, maxX: 81, minZ: -1, maxZ: 0.5 });
+    collisionBoxes.push({ minX: -1, maxX: 0.5, minZ: -1, maxZ: 61 });
+    collisionBoxes.push({ minX: 79.5, maxX: 81, minZ: -1, maxZ: 61 });
+    collisionBoxes.push({ minX: -1, maxX: 17.5, minZ: 59.5, maxZ: 61 });
+    collisionBoxes.push({ minX: 54.5, maxX: 81, minZ: 59.5, maxZ: 61 });
+    for (let i = 0; i < 6; i++) {
+        const z = 12 + i * 5;
+        collisionBoxes.push({ minX: 18, maxX: 56, minZ: z - 1.05, maxZ: z - 0.45 });
+        collisionBoxes.push({ minX: 18, maxX: 56, minZ: z + 0.45, maxZ: z + 1.05 });
+    }
+    collisionBoxes.push({ minX: 0.5, maxX: 18, minZ: 28, maxZ: 50 });
+    collisionBoxes.push({ minX: 0.5, maxX: 12, minZ: 6, maxZ: 32 });
+    collisionBoxes.push({ minX: 24, maxX: 56, minZ: 0.5, maxZ: 4.5 });
+    collisionBoxes.push({ minX: 64, maxX: 74, minZ: 12, maxZ: 42 });
+    collisionBoxes.push({ minX: 28, maxX: 50, minZ: 44, maxZ: 53 });
+    collisionBoxes.push({ minX: 56, maxX: 80, minZ: 0.5, maxZ: 13 });
+}
+
+function checkWorldBounds(x, z, radius) {
+    if (x - radius < 0.5 || x + radius > 79.5 || z - radius < 0.5) return true;
+    if (z + radius > 59.5) {
+        if (x - radius < 17.5 || x + radius > 54.5) return true;
+    }
+    return false;
+}
+
+function checkCollision(newX, newZ, radius) {
+    if (checkWorldBounds(newX, newZ, radius)) return true;
+    for (const box of collisionBoxes) {
+        const cx = Math.max(box.minX, Math.min(newX, box.maxX));
+        const cz = Math.max(box.minZ, Math.min(newZ, box.maxZ));
+        const dx = newX - cx;
+        const dz = newZ - cz;
+        if (dx * dx + dz * dz < radius * radius) return true;
+    }
+    return false;
+}
+
+function updateFPCamera() {
+    if (!camera) return;
+    camera.rotation.set(fpPitch, fpYaw, 0, 'YXZ');
+}
+
+function getWalkRouteParent() {
+    if (fpMode) return document.getElementById('fp-route-actions');
+    return document.getElementById('sm-route-info');
+}
+
+function maybeAddFpWalkButton() {
+    document.getElementById('sm-fp-walk-route')?.remove();
+    if (!window.currentRouteWaypoints || window.currentRouteWaypoints.length < 2) return;
+    const parent = getWalkRouteParent();
+    if (!parent) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'sm-fp-walk-route';
+    btn.textContent = '🚶 Walk the Route';
+    btn.style.cssText =
+        'width:100%;margin-top:10px;padding:10px;background:#4f772d;color:white;border:none;border-radius:8px;cursor:pointer;font-family:Outfit,sans-serif;font-weight:600;font-size:0.85em;';
+    btn.addEventListener('click', () => startAutoWalk());
+    parent.appendChild(btn);
+}
+
+function fpKeyDown(e) {
+    if (!fpMode) return;
+    switch (e.code) {
+        case 'KeyW':
+        case 'ArrowUp':
+            fpMoveForward = true;
+            break;
+        case 'KeyS':
+        case 'ArrowDown':
+            fpMoveBackward = true;
+            break;
+        case 'KeyA':
+        case 'ArrowLeft':
+            fpMoveLeft = true;
+            break;
+        case 'KeyD':
+        case 'ArrowRight':
+            fpMoveRight = true;
+            break;
+        case 'ShiftLeft':
+        case 'ShiftRight':
+            fpSprinting = true;
+            break;
+        case 'Escape':
+            exitFirstPerson();
+            break;
+        default:
+            return;
+    }
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+        e.preventDefault();
+    }
+}
+
+function fpKeyUp(e) {
+    if (!fpMode) return;
+    switch (e.code) {
+        case 'KeyW':
+        case 'ArrowUp':
+            fpMoveForward = false;
+            break;
+        case 'KeyS':
+        case 'ArrowDown':
+            fpMoveBackward = false;
+            break;
+        case 'KeyA':
+        case 'ArrowLeft':
+            fpMoveLeft = false;
+            break;
+        case 'KeyD':
+        case 'ArrowRight':
+            fpMoveRight = false;
+            break;
+        case 'ShiftLeft':
+        case 'ShiftRight':
+            fpSprinting = false;
+            break;
+        default:
+            break;
+    }
+}
+
+function fpMouseDownHandler(e) {
+    if (!fpMode || e.button !== 0) return;
+    fpLookDragging = true;
+    fpLastMouseX = e.clientX;
+    fpLastMouseY = e.clientY;
+    renderer.domElement.style.cursor = 'none';
+}
+
+function fpMouseUpHandler() {
+    fpLookDragging = false;
+    if (fpMode && renderer) renderer.domElement.style.cursor = 'crosshair';
+}
+
+function fpMouseMoveHandler(e) {
+    if (!fpMode || !fpLookDragging) return;
+    const sensitivity = 0.003;
+    const deltaX = e.clientX - fpLastMouseX;
+    const deltaY = e.clientY - fpLastMouseY;
+    fpYaw -= deltaX * sensitivity;
+    fpPitch -= deltaY * sensitivity;
+    fpPitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, fpPitch));
+    fpLastMouseX = e.clientX;
+    fpLastMouseY = e.clientY;
+    updateFPCamera();
+}
+
+function fpWheelHandler(e) {
+    if (!fpMode) return;
+    fpSpeed = Math.max(5, Math.min(25, fpSpeed + (e.deltaY > 0 ? -1 : 1)));
+    e.preventDefault();
+}
+
+function fpTouchStart(e) {
+    if (!fpMode) return;
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        if (x < rect.width / 2) {
+            fpMoveTouchId = touch.identifier;
+            fpTouchStartX = touch.clientX;
+            fpTouchStartY = touch.clientY;
+        } else {
+            fpTouchId = touch.identifier;
+            fpLastMouseX = touch.clientX;
+            fpLastMouseY = touch.clientY;
+        }
+    }
+}
+
+function fpTouchMove(e) {
+    if (!fpMode) return;
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+        if (touch.identifier === fpTouchId) {
+            const sensitivity = 0.004;
+            fpYaw -= (touch.clientX - fpLastMouseX) * sensitivity;
+            fpPitch -= (touch.clientY - fpLastMouseY) * sensitivity;
+            fpPitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, fpPitch));
+            fpLastMouseX = touch.clientX;
+            fpLastMouseY = touch.clientY;
+            updateFPCamera();
+        }
+        if (touch.identifier === fpMoveTouchId) {
+            const dx = touch.clientX - fpTouchStartX;
+            const dy = touch.clientY - fpTouchStartY;
+            const deadzone = 15;
+            fpMoveForward = dy < -deadzone;
+            fpMoveBackward = dy > deadzone;
+            fpMoveLeft = dx < -deadzone;
+            fpMoveRight = dx > deadzone;
+        }
+    }
+}
+
+function fpTouchEnd(e) {
+    for (const touch of e.changedTouches) {
+        if (touch.identifier === fpMoveTouchId) {
+            fpMoveTouchId = null;
+            fpMoveForward = fpMoveBackward = fpMoveLeft = fpMoveRight = false;
+        }
+        if (touch.identifier === fpTouchId) {
+            fpTouchId = null;
+        }
+    }
+}
+
+function checkProductProximity() {
+    if (!fpMode || !productMeshes?.length) return;
+    const proximityThreshold = 2.5;
+    let closestProduct = null;
+    let closestDist = Infinity;
+    for (const mesh of productMeshes) {
+        if (!mesh.visible) continue;
+        const dx = fpPosition.x - mesh.position.x;
+        const dz = fpPosition.z - mesh.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < proximityThreshold && dist < closestDist) {
+            closestDist = dist;
+            closestProduct = mesh.userData;
+        }
+    }
+    const popup = document.getElementById('fp-product-popup');
+    if (!popup) return;
+    if (closestProduct) {
+        const p = closestProduct;
+        const co2Color = p.is_recommended ? '#22c55e' : p.kg_co2e > 8 ? '#ef4444' : '#eab308';
+        const kg = p.kg_co2e != null ? Number(p.kg_co2e).toFixed(2) : '—';
+        popup.innerHTML = `
+            <div style="font-weight:700; font-size:1em; margin-bottom:4px;">${escapeHtml(p.name || 'Item')}</div>
+            <div style="color:#6b7280; font-size:0.85em; margin-bottom:6px;">${escapeHtml(
+                [p.brand, p.zone_name].filter(Boolean).join(' · ')
+            )}</div>
+            <div style="display:flex; align-items:center; gap:6px; justify-content:center;">
+                <span style="width:10px;height:10px;border-radius:50%;background:${co2Color};display:inline-block;"></span>
+                <span style="font-weight:600;">${kg} kg CO₂e</span>
+            </div>
+            ${
+                p.is_recommended
+                    ? '<div style="margin-top:6px;padding:4px 8px;background:#f0fdf4;color:#166534;border-radius:6px;font-size:0.8em;font-weight:600;">✓ Eco Pick</div>'
+                    : ''
+            }`;
+        popup.style.display = 'block';
+    } else {
+        popup.style.display = 'none';
+    }
+}
+
+function showFPHud() {
+    hideFPHud();
+    const container = getContainer();
+    if (!container) return;
+
+    const routeActions = document.createElement('div');
+    routeActions.id = 'fp-route-actions';
+    routeActions.style.cssText =
+        'position:absolute;bottom:168px;left:50%;transform:translateX(-50%);z-index:20;min-width:200px;max-width:90%;pointer-events:auto;';
+    container.appendChild(routeActions);
+
+    const crosshair = document.createElement('div');
+    crosshair.id = 'fp-crosshair';
+    crosshair.style.cssText =
+        'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;pointer-events:none;';
+    crosshair.innerHTML = `
+        <svg width="24" height="24" viewBox="0 0 24 24" style="opacity:0.5;">
+            <circle cx="12" cy="12" r="2" fill="none" stroke="#132a13" stroke-width="1.5"/>
+            <line x1="12" y1="4" x2="12" y2="9" stroke="#132a13" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="12" y1="15" x2="12" y2="20" stroke="#132a13" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="4" y1="12" x2="9" y2="12" stroke="#132a13" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="15" y1="12" x2="20" y2="12" stroke="#132a13" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>`;
+    container.appendChild(crosshair);
+
+    const popup = document.createElement('div');
+    popup.id = 'fp-product-popup';
+    popup.style.cssText =
+        'display:none;position:absolute;bottom:100px;left:50%;transform:translateX(-50%);z-index:20;background:rgba(255,255,255,0.95);backdrop-filter:blur(10px);border-radius:12px;padding:14px 20px;box-shadow:0 4px 20px rgba(0,0,0,0.15);min-width:220px;text-align:center;font-family:Outfit,sans-serif;pointer-events:none;';
+    container.appendChild(popup);
+
+    const hint = document.createElement('div');
+    hint.id = 'fp-controls-hint';
+    hint.style.cssText =
+        'position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:20;background:rgba(19,42,19,0.8);backdrop-filter:blur(8px);border-radius:10px;padding:10px 20px;font-family:Outfit,sans-serif;font-size:0.8em;color:white;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:center;max-width:95%;pointer-events:none;';
+    hint.innerHTML = `
+        <span><kbd style="background:rgba(255,255,255,0.2);padding:2px 6px;border-radius:4px;">W</kbd><kbd style="background:rgba(255,255,255,0.2);padding:2px 6px;border-radius:4px;margin-left:2px;">A</kbd><kbd style="background:rgba(255,255,255,0.2);padding:2px 6px;border-radius:4px;margin-left:2px;">S</kbd><kbd style="background:rgba(255,255,255,0.2);padding:2px 6px;border-radius:4px;margin-left:2px;">D</kbd> Move</span>
+        <span>🖱️ Drag to look</span>
+        <span><kbd style="background:rgba(255,255,255,0.2);padding:2px 6px;border-radius:4px;">Shift</kbd> Sprint</span>
+        <span><kbd style="background:rgba(255,255,255,0.2);padding:2px 6px;border-radius:4px;">Esc</kbd> Exit</span>
+        <span style="opacity:0.85;font-size:0.75em;">Scroll: speed</span>`;
+    container.appendChild(hint);
+
+    const minimap = document.createElement('canvas');
+    minimap.id = 'fp-minimap';
+    minimap.width = 160;
+    minimap.height = 120;
+    minimap.style.cssText =
+        'position:absolute;top:136px;right:16px;z-index:20;border-radius:10px;border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 12px rgba(0,0,0,0.2);background:#f5f0e8;';
+    container.appendChild(minimap);
+
+    if (renderer) renderer.domElement.style.cursor = 'crosshair';
+
+    setTimeout(() => {
+        const h = document.getElementById('fp-controls-hint');
+        if (h && h.parentNode) {
+            h.style.transition = 'opacity 1s';
+            h.style.opacity = '0';
+            setTimeout(() => h.remove(), 1000);
+        }
+    }, 5000);
+}
+
+function hideFPHud() {
+    ['fp-crosshair', 'fp-product-popup', 'fp-controls-hint', 'fp-minimap', 'fp-route-actions'].forEach((id) => {
+        document.getElementById(id)?.remove();
+    });
+    if (renderer) renderer.domElement.style.cursor = 'grab';
+}
+
+function updateMinimap() {
+    const canvas = document.getElementById('fp-minimap');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    const scaleX = w / 80;
+    const scaleZ = h / 60;
+    ctx.fillStyle = '#f5f0e8';
+    ctx.fillRect(0, 0, w, h);
+    const zones = [
+        { color: '#22c55e', x: 0, z: 32, wd: 18, d: 18 },
+        { color: '#dc2626', x: 0, z: 8, wd: 12, d: 22 },
+        { color: '#3b82f6', x: 24, z: 0, wd: 32, d: 7 },
+        { color: '#a78bfa', x: 64, z: 12, wd: 10, d: 30 },
+        { color: '#fbbf24', x: 12, z: 0, wd: 16, d: 12 },
+        { color: '#9ca3af', x: 28, z: 44, wd: 22, d: 10 },
+    ];
+    zones.forEach((z) => {
+        ctx.fillStyle = z.color + '40';
+        ctx.fillRect(z.x * scaleX, z.z * scaleZ, z.wd * scaleX, z.d * scaleZ);
+        ctx.strokeStyle = z.color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(z.x * scaleX, z.z * scaleZ, z.wd * scaleX, z.d * scaleZ);
+    });
+    ctx.fillStyle = 'rgba(139,115,85,0.45)';
+    for (let i = 0; i < 6; i++) {
+        const zz = 12 + i * 5;
+        ctx.fillRect(18 * scaleX, (zz - 0.5) * scaleZ, 38 * scaleX, 1 * scaleZ);
+    }
+    const px = fpPosition.x * scaleX;
+    const pz = fpPosition.z * scaleZ;
+    ctx.save();
+    ctx.translate(px, pz);
+    ctx.rotate(-fpYaw + Math.PI / 2);
+    ctx.fillStyle = 'rgba(79, 119, 45, 0.18)';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-12, -20);
+    ctx.lineTo(12, -20);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#4f772d';
+    ctx.beginPath();
+    ctx.moveTo(0, -5);
+    ctx.lineTo(-3, 3);
+    ctx.lineTo(3, 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    const wps = window.currentRouteWaypoints;
+    if (wps?.length > 1) {
+        ctx.strokeStyle = '#22c55e';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        wps.forEach((wp, i) => {
+            const mx = wp.x * scaleX;
+            const mz = wp.z * scaleZ;
+            if (i === 0) ctx.moveTo(mx, mz);
+            else ctx.lineTo(mx, mz);
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+}
+
+function startAutoWalk() {
+    if (!window.currentRouteWaypoints || window.currentRouteWaypoints.length < 2) return;
+    autoWalking = true;
+    autoWalkIndex = 0;
+    autoWalkProgress = 0;
+    const start = window.currentRouteWaypoints[0];
+    fpPosition.set(start.x, fpHeight, start.z);
+    fpMoveForward = fpMoveBackward = fpMoveLeft = fpMoveRight = false;
+    hideProductPopup();
+}
+
+function updateAutoWalk(delta) {
+    if (!autoWalking || !window.currentRouteWaypoints?.length) return;
+    const waypoints = window.currentRouteWaypoints;
+    if (autoWalkIndex >= waypoints.length - 1) {
+        autoWalking = false;
+        const last = waypoints[waypoints.length - 1];
+        fpPosition.set(last.x, fpHeight, last.z);
+        camera.position.copy(fpPosition);
+        updateFPCamera();
+        checkProductProximity();
+        return;
+    }
+    const from = waypoints[autoWalkIndex];
+    const to = waypoints[autoWalkIndex + 1];
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const segmentLength = Math.sqrt(dx * dx + dz * dz) || 0.1;
+    const walkSpeed = 6;
+    autoWalkProgress += (walkSpeed * delta) / segmentLength;
+    if (autoWalkProgress >= 1) {
+        autoWalkProgress = 0;
+        autoWalkIndex++;
+        if (autoWalkIndex >= waypoints.length - 1) {
+            autoWalking = false;
+            fpPosition.set(to.x, fpHeight, to.z);
+        } else {
+            fpPosition.set(to.x, fpHeight, to.z);
+        }
+        camera.position.copy(fpPosition);
+        updateFPCamera();
+        checkProductProximity();
+        return;
+    }
+    fpPosition.x = from.x + dx * autoWalkProgress;
+    fpPosition.z = from.z + dz * autoWalkProgress;
+    fpPosition.y = fpHeight + Math.sin(autoWalkProgress * Math.PI * 4) * 0.02;
+    const targetYaw = Math.atan2(-dx, -dz);
+    let diff = targetYaw - fpYaw;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    fpYaw += diff * Math.min(1, delta * 5);
+    camera.position.copy(fpPosition);
+    updateFPCamera();
+    checkProductProximity();
+}
+
+function updateFirstPerson(delta) {
+    if (!fpMode || autoWalking) return;
+    const speed = fpSpeed * (fpSprinting ? fpSprintMultiplier : 1.0);
+    const forward = new THREE.Vector3(0, 0, -1);
+    forward.applyQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, fpYaw, 0, 'YXZ')));
+    forward.y = 0;
+    forward.normalize();
+    const right = new THREE.Vector3();
+    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    let moveX = 0;
+    let moveZ = 0;
+    if (fpMoveForward) {
+        moveX += forward.x * speed * delta;
+        moveZ += forward.z * speed * delta;
+    }
+    if (fpMoveBackward) {
+        moveX -= forward.x * speed * delta;
+        moveZ -= forward.z * speed * delta;
+    }
+    if (fpMoveLeft) {
+        moveX -= right.x * speed * delta;
+        moveZ -= right.z * speed * delta;
+    }
+    if (fpMoveRight) {
+        moveX += right.x * speed * delta;
+        moveZ += right.z * speed * delta;
+    }
+    const radius = 0.4;
+    const newX = fpPosition.x + moveX;
+    const newZ = fpPosition.z + moveZ;
+    if (!checkCollision(newX, fpPosition.z, radius)) {
+        fpPosition.x = newX;
+    }
+    if (!checkCollision(fpPosition.x, newZ, radius)) {
+        fpPosition.z = newZ;
+    }
+    const isMoving = fpMoveForward || fpMoveBackward || fpMoveLeft || fpMoveRight;
+    if (isMoving) {
+        fpBobPhase += delta * (fpSprinting ? 12 : 8);
+        const bobY = Math.sin(fpBobPhase) * fpBobAmount;
+        const bobX = Math.cos(fpBobPhase * 0.5) * fpBobAmount * 0.5;
+        fpPosition.y = fpHeight + bobY;
+        camera.position.set(fpPosition.x + bobX, fpPosition.y, fpPosition.z);
+    } else {
+        fpPosition.y += (fpHeight - fpPosition.y) * 0.12;
+        camera.position.copy(fpPosition);
+    }
+    updateFPCamera();
+    checkProductProximity();
+}
+
+function enterFirstPerson() {
+    if (!initialized || !renderer || !camera || !controls) return;
+    if (fpMode) return;
+    fpMode = true;
+    autoWalking = false;
+    controls.enabled = false;
+    buildCollisionBoxes();
+    if (window.currentRouteWaypoints?.length) {
+        const w0 = window.currentRouteWaypoints[0];
+        fpPosition.set(w0.x, fpHeight, w0.z);
+    } else {
+        fpPosition.set(35, fpHeight, 58);
+    }
+    fpYaw = -Math.PI / 2;
+    fpPitch = 0;
+    camera.position.copy(fpPosition);
+    camera.rotation.order = 'YXZ';
+    updateFPCamera();
+    loopPrevTime = performance.now();
+    document.addEventListener('keydown', fpKeyDown);
+    document.addEventListener('keyup', fpKeyUp);
+    const el = renderer.domElement;
+    el.addEventListener('mousedown', fpMouseDownHandler);
+    el.addEventListener('mouseup', fpMouseUpHandler);
+    el.addEventListener('mouseleave', fpMouseUpHandler);
+    el.addEventListener('mousemove', fpMouseMoveHandler);
+    el.addEventListener('wheel', fpWheelHandler, { passive: false });
+    el.addEventListener('touchstart', fpTouchStart, { passive: false });
+    el.addEventListener('touchmove', fpTouchMove, { passive: false });
+    el.addEventListener('touchend', fpTouchEnd);
+    showFPHud();
+    maybeAddFpWalkButton();
+    const overviewControls = document.getElementById('sm-controls');
+    if (overviewControls) overviewControls.style.display = 'none';
+    document.getElementById('sm-mode-overview')?.classList.remove('sm-mode-active');
+    document.getElementById('sm-mode-firstperson')?.classList.add('sm-mode-active');
+}
+
+function exitFirstPerson() {
+    if (!fpMode) return;
+    fpMode = false;
+    autoWalking = false;
+    document.removeEventListener('keydown', fpKeyDown);
+    document.removeEventListener('keyup', fpKeyUp);
+    if (renderer) {
+        const el = renderer.domElement;
+        el.removeEventListener('mousedown', fpMouseDownHandler);
+        el.removeEventListener('mouseup', fpMouseUpHandler);
+        el.removeEventListener('mouseleave', fpMouseUpHandler);
+        el.removeEventListener('mousemove', fpMouseMoveHandler);
+        el.removeEventListener('wheel', fpWheelHandler, { passive: false });
+        el.removeEventListener('touchstart', fpTouchStart, { passive: false });
+        el.removeEventListener('touchmove', fpTouchMove, { passive: false });
+        el.removeEventListener('touchend', fpTouchEnd);
+    }
+    fpLookDragging = false;
+    fpMoveForward = fpMoveBackward = fpMoveLeft = fpMoveRight = false;
+    fpSprinting = false;
+    fpTouchId = null;
+    fpMoveTouchId = null;
+    if (controls) {
+        controls.enabled = true;
+        camera.position.set(40, 55, 80);
+        camera.rotation.order = 'XYZ';
+        controls.target.set(40, 0, 30);
+        controls.update();
+        camera.lookAt(40, 0, 30);
+    }
+    hideFPHud();
+    const overviewControls = document.getElementById('sm-controls');
+    if (overviewControls) overviewControls.style.display = '';
+    document.getElementById('sm-mode-overview')?.classList.add('sm-mode-active');
+    document.getElementById('sm-mode-firstperson')?.classList.remove('sm-mode-active');
+    maybeAddFpWalkButton();
 }
 
 // ============ BUILD STORE ============
@@ -484,6 +1108,8 @@ function clearRoute() {
     stopMarkers.length = 0;
     routeCurve = null;
     routeAnimT = 0;
+    window.currentRouteWaypoints = [];
+    document.getElementById('sm-fp-walk-route')?.remove();
 }
 
 function renderRoute(data) {
@@ -528,10 +1154,13 @@ function renderRoute(data) {
         scene.add(cyl);
         stopMarkers.push(cyl);
     });
+
+    window.currentRouteWaypoints = data.waypoints.map((w) => ({ x: w.x, z: w.z }));
+    maybeAddFpWalkButton();
 }
 
 function animateCameraTo(pos, target) {
-    if (!camera || !controls) return;
+    if (fpMode || !camera || !controls) return;
     const startP = camera.position.clone();
     const startT = controls.target.clone();
     let f = 0;
@@ -551,20 +1180,34 @@ function animateCameraTo(pos, target) {
 // ============ LOOP ============
 function startLoop() {
     if (animFrameId != null) return;
+    loopPrevTime = performance.now();
     function tick() {
         animFrameId = requestAnimationFrame(tick);
-        if (routeSphere && routeCurve) {
-            routeAnimT += 0.008;
-            const u = routeAnimT % 1;
-            routeSphere.position.copy(routeCurve.getPoint(u));
+        const time = performance.now();
+        const delta = Math.min((time - loopPrevTime) / 1000, 0.1);
+        loopPrevTime = time;
+        if (fpMode) {
+            if (autoWalking) {
+                updateAutoWalk(delta);
+            } else {
+                updateFirstPerson(delta);
+            }
+            updateMinimap();
+        } else {
+            if (routeSphere && routeCurve) {
+                routeAnimT += 0.008;
+                const u = routeAnimT % 1;
+                routeSphere.position.copy(routeCurve.getPoint(u));
+            }
+            if (controls) controls.update();
         }
-        if (controls) controls.update();
         if (renderer && scene && camera) renderer.render(scene, camera);
     }
     animFrameId = requestAnimationFrame(tick);
 }
 
 function stopLoop() {
+    if (fpMode) exitFirstPerson();
     if (animFrameId != null) {
         cancelAnimationFrame(animFrameId);
         animFrameId = null;
@@ -583,6 +1226,7 @@ function onResize() {
 }
 
 function resetView() {
+    if (fpMode) exitFirstPerson();
     if (!camera || !controls) return;
     camera.position.set(40, 55, 80);
     controls.target.set(40, 0, 30);
@@ -593,3 +1237,5 @@ function resetView() {
 window.initSupermarket = init;
 window.stopSupermarketRender = stopLoop;
 window.resetSupermarketView = resetView;
+window.enterFirstPerson = enterFirstPerson;
+window.exitFirstPerson = exitFirstPerson;

@@ -1561,17 +1561,15 @@ body.chat-mobile-open {
     background: var(--fern);
 }
 
-.dashboard-stat-skeleton {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1.25rem;
-    margin-bottom: 2rem;
+/* Legacy stat skeleton: author `display:grid` could override [hidden]; keep hidden if markup returns */
+#view-dashboard .dashboard-stat-skeleton,
+#dashboard-stat-skeleton {
+    display: none !important;
 }
 
-@media (max-width: 768px) {
-    .dashboard-stat-skeleton {
-        grid-template-columns: 1fr;
-    }
+#view-dashboard .card:empty,
+#view-dashboard .stat-card:empty {
+    display: none !important;
 }
 
 .skeleton-card {
@@ -1689,6 +1687,75 @@ body.chat-mobile-open {
     border-radius: 12px;
     padding: 0.65rem 1rem;
     margin-bottom: 1rem;
+}
+
+.sm-mode-active {
+    background: #4f772d !important;
+    color: white !important;
+    border-radius: 8px !important;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.sl-loader-icon {
+    width: 32px;
+    height: 32px;
+    animation: spin 1s linear infinite;
+}
+
+.sl-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+@media (max-width: 720px) {
+    .sl-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.smartlist-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 0.9em;
+    border: none;
+    line-height: 1.2;
+}
+
+.smartlist-btn--primary {
+    background: #4f772d;
+    color: white;
+}
+
+.smartlist-btn--primary:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.smartlist-btn--outline {
+    background: white;
+    color: #132a13;
+    border: 1px solid #d3e0d4;
+}
+
+#sm-camera-mode .sm-mode-btn:not(.sm-mode-active):hover {
+    background: rgba(79, 119, 45, 0.12);
+    color: #132a13;
 }
 
 .upload-feedback-steps {

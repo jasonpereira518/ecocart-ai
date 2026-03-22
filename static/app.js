@@ -21,31 +21,12 @@ function showToast(message, type = 'info') {
 }
 
 function setDashboardLoading(loading) {
-    const sk = document.getElementById('dashboard-stat-skeleton');
-    const grid = document.getElementById('dashboard-stat-grid');
     const hsk = document.getElementById('dashboard-habits-skeleton');
     const hbody = document.getElementById('dashboard-habits-body');
     if (loading) {
-        if (sk) sk.hidden = false;
-        if (grid) {
-            grid.hidden = true;
-            grid.style.opacity = '';
-            grid.style.transition = '';
-        }
         if (hsk) hsk.hidden = false;
         if (hbody) hbody.hidden = true;
     } else {
-        if (sk) sk.hidden = true;
-        if (grid) {
-            grid.hidden = false;
-            grid.style.opacity = '0';
-            grid.style.transition = 'opacity 0.5s ease';
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    grid.style.opacity = '1';
-                });
-            });
-        }
         if (hsk) hsk.hidden = true;
         if (hbody) hbody.hidden = false;
     }
@@ -124,6 +105,7 @@ function switchView(viewName) {
     }
 
     if (viewName === 'dashboard') {
+        removeDashboardStatSkeletonGhosts();
         void refreshDashboardData().then(() => loadBadges());
     }
 
@@ -145,6 +127,10 @@ function switchView(viewName) {
         initHistoryViewIfNeeded();
     }
 
+    if (viewName === 'smartlist') {
+        loadSmartList();
+    }
+
     if (viewName !== 'history') {
         window.__chatFocusedReceiptId = null;
         document.querySelectorAll('.history-receipt-card.is-focused').forEach((el) => {
@@ -158,6 +144,385 @@ function switchView(viewName) {
     }
 
     __prevViewName = viewName;
+}
+
+// === SMART LIST ===
+let smartListData = null;
+
+function loadSmartList() {
+    const content = document.getElementById('sl-content');
+    const statsEl = document.getElementById('sl-stats');
+    if (content) {
+        content.innerHTML = `<div style="text-align:center; padding:60px 20px; color:#9ca3af;">
+            <i data-lucide="loader" class="sl-loader-icon"></i>
+            <p style="margin-top:12px;">Building your smart list...</p>
+        </div>`;
+    }
+    if (statsEl) statsEl.innerHTML = '';
+    if (window.lucide) window.lucide.createIcons();
+
+    fetch('/api/smart-list')
+        .then((res) => res.json())
+        .then((data) => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            smartListData = data;
+            renderSmartListStats(
+                data.stats || {
+                    total_items: 0,
+                    original_co2: 0,
+                    optimized_co2: 0,
+                    total_saved: 0,
+                    swap_count: 0,
+                }
+            );
+            renderSmartList(data);
+            if (window.lucide) window.lucide.createIcons();
+        })
+        .catch((err) => {
+            console.error('Smart list error:', err);
+            if (content) {
+                content.innerHTML = `<div style="text-align:center;padding:40px;color:var(--accent, #ef4444);">Failed to load smart list.</div>`;
+            }
+        });
+}
+
+function renderSmartListStats(stats) {
+    const container = document.getElementById('sl-stats');
+    if (!container) return;
+
+    const s = stats || {};
+    const orig = Number(s.original_co2 ?? 0);
+    const opt = Number(s.optimized_co2 ?? 0);
+    const saved = Number(s.total_saved ?? 0);
+    const n = Number(s.total_items ?? 0);
+
+    const cards = [
+        { label: 'List Items', value: String(n), icon: 'shopping-cart', color: '#4f772d' },
+        { label: 'Original CO₂', value: `${orig.toFixed(1)} kg`, icon: 'cloud', color: '#ef4444' },
+        { label: 'Optimized CO₂', value: `${opt.toFixed(1)} kg`, icon: 'leaf', color: '#22c55e' },
+        { label: 'CO₂ Saved', value: `${saved.toFixed(1)} kg`, icon: 'trending-down', color: '#3b82f6' },
+    ];
+
+    container.innerHTML = cards
+        .map(
+            (c) => `
+        <div class="card" style="padding:16px; text-align:center;">
+            <i data-lucide="${c.icon}" style="width:20px;height:20px;color:${c.color};margin-bottom:6px;"></i>
+            <div style="font-size:1.5em; font-weight:700; color:#132a13;">${escapeHtml(c.value)}</div>
+            <div style="font-size:0.8em; color:#6b7280; margin-top:2px;">${escapeHtml(c.label)}</div>
+        </div>`
+        )
+        .join('');
+}
+
+function renderSmartList(data) {
+    const container = document.getElementById('sl-content');
+    if (!container) return;
+
+    if (!data.smart_list || data.smart_list.length === 0) {
+        container.innerHTML = `
+            <div style="text-align:center; padding:60px 20px;">
+                <i data-lucide="clipboard-list" style="width:48px;height:48px;color:#d3e0d4;margin-bottom:16px;"></i>
+                <h3 style="color:#132a13; margin-bottom:8px;">No Shopping Data Yet</h3>
+                <p style="color:#6b7280; margin-bottom:20px;">${escapeHtml(
+                    data.message || 'Upload a few receipts and your smart list will appear here.'
+                )}</p>
+                <button type="button" class="btn btn-primary js-sl-goto-upload" style="padding:10px 24px;background:#4f772d;color:white;border:none;border-radius:8px;cursor:pointer;font-family:'Outfit',sans-serif;font-weight:600;">Upload Receipt</button>
+            </div>`;
+        return;
+    }
+
+    const categories = data.by_category || {};
+    const categoryOrder = [
+        'Meat',
+        'Dairy',
+        'Produce',
+        'Beverages',
+        'Grains',
+        'Snacks',
+        'Frozen',
+        'Household',
+        'Other',
+    ];
+    const categoryColors = {
+        Meat: '#ef4444',
+        Dairy: '#f59e0b',
+        Produce: '#22c55e',
+        Beverages: '#3b82f6',
+        Grains: '#a855f7',
+        Snacks: '#f97316',
+        Frozen: '#a78bfa',
+        Household: '#6b7280',
+        Other: '#9ca3af',
+    };
+    const categoryEmoji = {
+        Meat: '🥩',
+        Dairy: '🧀',
+        Produce: '🥬',
+        Beverages: '🥤',
+        Grains: '🍞',
+        Snacks: '🍪',
+        Frozen: '🧊',
+        Household: '🧹',
+        Other: '📦',
+    };
+
+    let html = '';
+
+    const sortedCats = Object.keys(categories).sort((a, b) => {
+        const ia = categoryOrder.indexOf(a);
+        const ib = categoryOrder.indexOf(b);
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+
+    for (const cat of sortedCats) {
+        const items = categories[cat];
+        if (!items || items.length === 0) continue;
+
+        const color = categoryColors[cat] || '#6b7280';
+        const emoji = categoryEmoji[cat] || '📦';
+
+        html += `
+            <div style="margin-bottom:24px;">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid ${color}33;">
+                    <span style="font-size:1.2em;">${emoji}</span>
+                    <h3 style="margin:0; font-size:1em; font-weight:700; color:#132a13;">${escapeHtml(cat)}</h3>
+                    <span style="font-size:0.8em; color:#9ca3af; margin-left:auto;">${items.length} item${
+                        items.length > 1 ? 's' : ''
+                    }</span>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px;">`;
+
+        for (const item of items) {
+            const isSwapped = item.swapped && item.swap_to;
+            const co2Display = isSwapped ? item.swapped_co2 : item.avg_co2;
+            const co2Num = Number(co2Display ?? 0);
+            const co2Color = co2Num > 5 ? '#ef4444' : co2Num < 1.5 ? '#22c55e' : '#f59e0b';
+            const frequencyBadge =
+                item.times_purchased >= 3 ? '🔄 Regular' : item.times_purchased >= 2 ? '↩️ Repeat' : '1️⃣ Once';
+            const brandLine = isSwapped
+                ? escapeHtml(item.swap_to.brand || '')
+                : escapeHtml(item.brand || '');
+
+            html += `
+                <div class="card" style="padding:14px 16px; display:flex; align-items:center; gap:12px; ${
+                    isSwapped ? 'border-left:3px solid #22c55e;' : ''
+                }">
+                    <input type="checkbox" class="sl-item-check" data-item-id="${escapeHtml(item.id)}" ${
+                        item.included ? 'checked' : ''
+                    } style="width:18px; height:18px; accent-color:#4f772d; cursor:pointer; flex-shrink:0;">
+                    <div style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            ${
+                                isSwapped
+                                    ? `<span style="text-decoration:line-through; color:#9ca3af; font-size:0.9em;">${escapeHtml(
+                                          item.item_name
+                                      )}</span>
+                                <i data-lucide="arrow-right" style="width:14px;height:14px;color:#22c55e;flex-shrink:0;"></i>
+                                <span style="font-weight:600; color:#166534;">${escapeHtml(
+                                    item.swap_to.product || ''
+                                )}</span>`
+                                    : `<span style="font-weight:600; color:#132a13;">${escapeHtml(
+                                          item.item_name || ''
+                                      )}</span>`
+                            }
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap;">
+                            <span style="font-size:0.8em; color:#6b7280;">${brandLine}</span>
+                            <span style="font-size:0.75em; background:#f1f5f1; color:#6b7280; padding:1px 6px; border-radius:4px;">${frequencyBadge}</span>
+                            ${
+                                item.avg_quantity > 1
+                                    ? `<span style="font-size:0.75em; color:#9ca3af;">Qty: ${escapeHtml(
+                                          String(item.avg_quantity)
+                                      )} ${escapeHtml(item.unit || '')}</span>`
+                                    : ''
+                            }
+                            ${
+                                isSwapped
+                                    ? `<span style="font-size:0.75em; background:#f0fdf4; color:#166534; padding:2px 6px; border-radius:4px;">saves ${escapeHtml(
+                                          String(item.swap_to.co2_savings)
+                                      )} kg</span>`
+                                    : ''
+                            }
+                        </div>
+                    </div>
+                    <div style="text-align:right; flex-shrink:0;">
+                        <div style="font-weight:700; color:${co2Color}; font-size:1.1em;">${co2Num.toFixed(2)}</div>
+                        <div style="font-size:0.7em; color:#9ca3af;">kg CO₂e</div>
+                    </div>
+                </div>`;
+        }
+
+        html += '</div></div>';
+    }
+
+    container.innerHTML = html;
+}
+
+function recalcSmartListStatsFromIncluded() {
+    if (!smartListData?.smart_list) return;
+    const included = smartListData.smart_list.filter((i) => i.included);
+    const original = included.reduce((s, i) => s + Number(i.avg_co2 || 0), 0);
+    const optimized = included.reduce((s, i) => s + Number(i.swapped_co2 != null ? i.swapped_co2 : i.avg_co2 || 0), 0);
+    smartListData.stats = smartListData.stats || {};
+    smartListData.stats.total_items = included.length;
+    smartListData.stats.original_co2 = Math.round(original * 100) / 100;
+    smartListData.stats.optimized_co2 = Math.round(optimized * 100) / 100;
+    smartListData.stats.total_saved = Math.round((original - optimized) * 100) / 100;
+    smartListData.stats.swap_count = smartListData.smart_list.filter((i) => i.swapped).length;
+}
+
+function toggleSmartListItem(itemId, checked) {
+    if (!smartListData?.smart_list) return;
+    const item = smartListData.smart_list.find((i) => i.id === itemId);
+    if (item) {
+        item.included = checked;
+        recalcSmartListStatsFromIncluded();
+        renderSmartListStats(smartListData.stats);
+    }
+}
+
+function optimizeSmartList() {
+    if (!smartListData || !smartListData.smart_list) return;
+
+    const btn = document.getElementById('sl-optimize-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML =
+            '<i data-lucide="loader" style="width:16px;height:16px;" class="sl-loader-icon"></i> Optimizing...';
+        if (window.lucide) window.lucide.createIcons();
+    }
+
+    const itemsToOptimize = smartListData.smart_list.filter((i) => i.included && !i.swapped);
+
+    fetch('/api/smart-list/optimize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: itemsToOptimize }),
+    })
+        .then(async (res) => {
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok && (!data.suggestions || !data.suggestions.length)) {
+                throw new Error(data.error || res.statusText || 'Request failed');
+            }
+            return data;
+        })
+        .then((data) => {
+            if (data.suggestions && data.suggestions.length > 0) {
+                for (const suggestion of data.suggestions) {
+                    const origKey = (suggestion.original_product || '').toLowerCase().trim();
+                    const item = smartListData.smart_list.find((i) => {
+                        const n = (i.item_name || '').toLowerCase().trim();
+                        return (
+                            n === origKey ||
+                            (origKey && n.includes(origKey)) ||
+                            (origKey && origKey.includes(n))
+                        );
+                    });
+                    if (item && !item.swapped) {
+                        item.swapped = true;
+                        item.swap_to = {
+                            product: suggestion.recommended_product,
+                            brand: suggestion.recommended_brand,
+                            co2_savings: Number(suggestion.co2_savings || 0),
+                            reason: suggestion.reason,
+                            aisle_location: suggestion.aisle_location,
+                        };
+                        item.swapped_co2 =
+                            Math.round(
+                                Math.max(0.1, Number(item.avg_co2 || 0) - Number(suggestion.co2_savings || 0)) * 100
+                            ) / 100;
+                    }
+                }
+                recalcSmartListStatsFromIncluded();
+                renderSmartListStats(smartListData.stats);
+                renderSmartList(smartListData);
+                if (typeof showToast === 'function') {
+                    showToast(`${data.suggestions.length} new swap suggestions applied!`, 'success');
+                }
+            } else if (typeof showToast === 'function') {
+                showToast(data.message || 'Your list is already well optimized!', 'info');
+            }
+        })
+        .catch((err) => {
+            console.error('Optimize error:', err);
+            if (typeof showToast === 'function') {
+                showToast(err.message || 'Failed to optimize. Try again.', 'error');
+            }
+        })
+        .finally(() => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML =
+                    '<i data-lucide="sparkles" style="width:16px;height:16px;"></i> Optimize with AI';
+                if (window.lucide) window.lucide.createIcons();
+            }
+        });
+}
+
+function copySmartList() {
+    if (!smartListData) return;
+
+    const included = smartListData.smart_list.filter((i) => i.included);
+    const text = included
+        .map((i) => {
+            const name =
+                i.swapped && i.swap_to
+                    ? `${i.swap_to.product} (${i.swap_to.brand || ''})`
+                    : `${i.item_name} (${i.brand || ''})`;
+            const qty = i.avg_quantity > 1 ? ` ×${i.avg_quantity}` : '';
+            return `☐ ${name}${qty}`;
+        })
+        .join('\n');
+
+    const st = smartListData.stats || {};
+    const header = `🛒 My EcoCart Smart Grocery List\n🌱 Optimized CO₂: ${Number(st.optimized_co2 ?? 0).toFixed(1)} kg\n💚 CO₂ Saved: ${Number(st.total_saved ?? 0).toFixed(1)} kg\n\n`;
+
+    const full = header + text;
+
+    const done = () => {
+        if (typeof showToast === 'function') {
+            showToast('Grocery list copied to clipboard!', 'success');
+        }
+    };
+
+    if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(full).then(done).catch(() => {
+            const textarea = document.createElement('textarea');
+            textarea.value = full;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            done();
+        });
+    } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = full;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        done();
+    }
+}
+
+function findItemsInStore() {
+    if (!smartListData?.smart_list) return;
+
+    const included = smartListData.smart_list.filter((i) => i.included);
+    const itemNames = included.map((i) =>
+        i.swapped && i.swap_to ? i.swap_to.product : i.item_name
+    );
+
+    window.smartListItemsForStore = itemNames.filter(Boolean);
+    switchView('supermarket');
+
+    if (typeof showToast === 'function') {
+        showToast(`Loading ${itemNames.length} items in 3D store…`, 'info');
+    }
 }
 
 // Reset the Log View UI
@@ -650,8 +1015,8 @@ function renderRecentActivitiesDash(list) {
             let colorClass = '';
             if (a.kg_co2e > 5) colorClass = 'text-high-impact';
             else if (a.kg_co2e < 1.5) colorClass = 'text-low-impact';
-            const brandPart = a.brand
-                ? `<span class="font-medium">${escapeHtml(a.brand)}</span> · `
+            const brandDisplay = a.brand
+                ? ` <span style="color:#6b7280; font-size:0.85em;">(${escapeHtml(a.brand)})</span>`
                 : '';
             return `
             <div class="dash-recent-row" style="display: flex; align-items: center; justify-content: space-between; padding: 1rem; border-bottom: 1px solid var(--border);">
@@ -661,8 +1026,10 @@ function renderRecentActivitiesDash(list) {
                         <i data-lucide="shopping-bag" size="18"></i>
                     </div>
                     <div style="min-width: 0;">
-                        <p class="text-sm font-bold" style="overflow-wrap: break-word;">${escapeHtml(a.item_name)}</p>
-                        <p class="text-xs text-muted">${brandPart}${escapeHtml(a.category || 'General')}</p>
+                        <p class="text-sm font-bold" style="overflow-wrap: break-word;">${escapeHtml(
+                            a.item_name
+                        )}${brandDisplay}</p>
+                        <p class="text-xs text-muted">${escapeHtml(a.category || 'General')}</p>
                     </div>
                 </div>
                 <p class="text-sm font-bold flex-shrink-0 ${colorClass}">${Number(a.kg_co2e).toFixed(2)}kg</p>
@@ -691,6 +1058,16 @@ function applyDashboardStatsPayload(data) {
 
     const iw = document.getElementById('dash-items-week');
     if (iw) iw.textContent = data.items_this_week;
+
+    if (data.name) {
+        const sn = document.getElementById('sidebar-display-name');
+        if (sn) sn.textContent = data.name;
+        const fn = document.getElementById('dash-user-firstname');
+        if (fn) {
+            const parts = String(data.name).trim().split(/\s+/);
+            fn.textContent = parts[0] || 'Jason';
+        }
+    }
 
     updateLevelUI(data.points, data.streak_count);
 
@@ -996,7 +1373,11 @@ function filterHistoryReceipts(list) {
             const label = String(r.receipt_label || r.receipt_id || '').toLowerCase();
             const key = String(r.receipt_key || '').toLowerCase();
             if (label.includes(q) || key.includes(q)) return true;
-            return (r.items || []).some((it) => String(it.name || '').toLowerCase().includes(q));
+            return (r.items || []).some((it) => {
+                const n = String(it.item_name || it.name || '').toLowerCase();
+                const b = String(it.brand || '').toLowerCase();
+                return n.includes(q) || b.includes(q);
+            });
         });
     }
     if (cat) {
@@ -1209,10 +1590,13 @@ function renderHistoryDetailHtml(data, card) {
         .map((it) => {
             const slug = categorySlug(it.category);
             const co2c = historyItemCo2Class(it.kg_co2e);
-            const brand = it.brand ? escapeHtml(it.brand) : '—';
+            const brandDisplay = it.brand
+                ? ` <span style="color:#6b7280; font-size:0.85em;">(${escapeHtml(it.brand)})</span>`
+                : '';
             return `<tr class="history-detail-row">
-                <td><span class="text-sm font-bold">${escapeHtml(it.item_name)}</span></td>
-                <td>${brand}</td>
+                <td style="padding:6px 8px;"><span class="text-sm font-bold">${escapeHtml(
+                    it.item_name
+                )}</span>${brandDisplay}</td>
                 <td><span class="category-chip category-chip--${slug}">${escapeHtml(it.category)}</span></td>
                 <td class="history-detail-qty">${Number(it.quantity).toFixed(
                     Number(it.quantity) % 1 ? 2 : 0
@@ -1228,14 +1612,18 @@ function renderHistoryDetailHtml(data, card) {
         .map((it) => {
             const slug = categorySlug(it.category);
             const co2c = historyItemCo2Class(it.kg_co2e);
-            const brand = it.brand ? escapeHtml(it.brand) : '—';
+            const brandDisplay = it.brand
+                ? ` <span style="color:#6b7280; font-size:0.85em;">(${escapeHtml(it.brand)})</span>`
+                : '';
             const qty = Number(it.quantity).toFixed(Number(it.quantity) % 1 ? 2 : 0);
             return `<div class="history-item-card">
                 <div class="history-item-card-top">
-                    <span class="text-sm font-bold" style="flex:1;min-width:0">${escapeHtml(it.item_name)}</span>
+                    <span class="text-sm font-bold" style="flex:1;min-width:0">${escapeHtml(
+                        it.item_name
+                    )}${brandDisplay}</span>
                     <span class="text-sm font-bold ${co2c}">${Number(it.kg_co2e).toFixed(2)} kg</span>
                 </div>
-                <p class="history-item-card-meta">${brand} · <span class="category-chip category-chip--${slug}">${escapeHtml(
+                <p class="history-item-card-meta"><span class="category-chip category-chip--${slug}">${escapeHtml(
                 it.category
             )}</span> · Qty ${qty} ${escapeHtml(it.unit || '')}</p>
             </div>`;
@@ -1273,7 +1661,6 @@ function renderHistoryDetailHtml(data, card) {
                     <thead>
                         <tr>
                             <th>Item</th>
-                            <th>Brand</th>
                             <th>Category</th>
                             <th>Qty</th>
                             <th>CO₂e</th>
@@ -2023,8 +2410,31 @@ function initChat() {
     }
 }
 
+function removeDashboardStatSkeletonGhosts() {
+    document.getElementById('dashboard-stat-skeleton')?.remove();
+    document.querySelectorAll('#view-dashboard .dashboard-stat-skeleton').forEach((el) => el.remove());
+}
+
 // Initial View
 window.addEventListener('DOMContentLoaded', () => {
+    removeDashboardStatSkeletonGhosts();
     switchView('dashboard');
     initChat();
+
+    document.getElementById('sl-optimize-btn')?.addEventListener('click', () => optimizeSmartList());
+    document.getElementById('sl-copy-btn')?.addEventListener('click', () => copySmartList());
+    document.getElementById('sl-store-btn')?.addEventListener('click', () => findItemsInStore());
+
+    document.getElementById('sl-content')?.addEventListener('change', (e) => {
+        const t = e.target;
+        if (t.matches?.('.sl-item-check')) {
+            toggleSmartListItem(t.dataset.itemId, t.checked);
+        }
+    });
+    document.getElementById('sl-content')?.addEventListener('click', (e) => {
+        if (e.target.closest?.('.js-sl-goto-upload')) {
+            e.preventDefault();
+            switchView('log');
+        }
+    });
 });

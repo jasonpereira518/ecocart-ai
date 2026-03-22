@@ -52,6 +52,12 @@
                     </a>
                 </div>
                 <div class="nav-item">
+                    <a href="#" class="nav-link" data-view="smartlist">
+                        <i data-lucide="clipboard-list"></i>
+                        Smart List
+                    </a>
+                </div>
+                <div class="nav-item">
                     <a href="#" class="nav-link" data-view="supermarket">
                         <i data-lucide="map-pin"></i>
                         Supermarket 3D
@@ -71,7 +77,7 @@
                         <i data-lucide="user" size="20"></i>
                     </div>
                     <div style="flex: 1; min-width: 0;">
-                        <p class="text-sm font-bold">{{ user.name or user.given_name or 'Explorer' }}</p>
+                        <p class="text-sm font-bold" id="sidebar-display-name">{{ display_name }}</p>
                         <p class="text-xs font-bold" style="color: #ecf39e; margin-top: 4px;" id="sidebar-level-line">{{ sidebar_level_display }}</p>
                         <p class="text-xs" style="color: #c8dcc8; margin-top: 2px;" id="sidebar-points-line">{{ local_user.points or 0 }} EcoPoints</p>
                         <p class="text-xs" style="color: #a3b8a3; margin-top: 4px;" id="sidebar-streak-line">🔥 {{ local_user.streak_count or 0 }} day streak</p>
@@ -104,7 +110,7 @@
                     <div style="margin-bottom: 2rem;">
                         <h1 class="text-2xl" style="overflow-wrap: break-word; line-height: 1.3; margin-bottom: 0.35rem;">
                             <span id="dash-greeting-word">Good afternoon</span>,
-                            <span id="dash-user-firstname">{{ user.given_name or user.name or 'Explorer' }}</span>!
+                            <span id="dash-user-firstname">{% if user.given_name %}{{ user.given_name }}{% else %}{{ (display_name.split()[0] if display_name else 'Jason') }}{% endif %}</span>!
                             <span id="dash-level-pill" class="eco-level-pill"></span>
                         </h1>
                         <div class="dash-level-progress-wrap">
@@ -135,11 +141,6 @@
                         </div>
                     </div>
 
-                    <div class="dashboard-stat-skeleton" id="dashboard-stat-skeleton" hidden>
-                        <div class="skeleton-card card"><div class="skeleton-line skeleton-line--lg"></div><div class="skeleton-line skeleton-line--md"></div></div>
-                        <div class="skeleton-card card"><div class="skeleton-line skeleton-line--lg"></div><div class="skeleton-line skeleton-line--md"></div></div>
-                        <div class="skeleton-card card"><div class="skeleton-line skeleton-line--lg"></div><div class="skeleton-line skeleton-line--sm"></div></div>
-                    </div>
                     <div class="stats-grid grid-cols-3 mb-2 dashboard-stat-grid" id="dashboard-stat-grid" style="margin-bottom: 2rem;">
                         <div class="card stat-card stat-card--tracked">
                             <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:8px;">
@@ -202,8 +203,8 @@
                                                 <i data-lucide="shopping-bag" size="18"></i>
                                             </div>
                                             <div style="min-width: 0;">
-                                                <p class="text-sm font-bold" style="overflow-wrap: break-word;">{{ activity.item_name }}</p>
-                                                <p class="text-xs text-muted">{% if activity.brand %}<span class="font-medium">{{ activity.brand }}</span> · {% endif %}{{ activity.category or 'General' }}</p>
+                                                <p class="text-sm font-bold" style="overflow-wrap: break-word;">{{ activity.item_name }}{% if activity.brand %} <span style="color:#6b7280; font-size:0.85em;">({{ activity.brand }})</span>{% endif %}</p>
+                                                <p class="text-xs text-muted">{{ activity.category or 'General' }}</p>
                                             </div>
                                         </div>
                                         <p class="text-sm font-bold flex-shrink-0 {% if activity.kg_co2e > 5 %}text-high-impact{% elif activity.kg_co2e < 1.5 %}text-low-impact{% endif %}">
@@ -360,12 +361,50 @@
                     </div>
                 </section>
 
+                <section id="view-smartlist" class="view-section">
+                    <div class="smartlist-page-wrap" style="max-width:900px; margin:0 auto;">
+                        <div class="smartlist-header-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; flex-wrap:wrap; gap:12px;">
+                            <div>
+                                <h2 style="margin:0; font-family:'Outfit',sans-serif; font-weight:700; color:#132a13;">Your Smart Grocery List</h2>
+                                <p style="margin:4px 0 0; color:#6b7280;">Built from your shopping habits. Optimized for the planet.</p>
+                            </div>
+                            <div class="smartlist-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
+                                <button type="button" id="sl-optimize-btn" class="smartlist-btn smartlist-btn--primary">
+                                    <i data-lucide="sparkles" style="width:16px;height:16px;"></i> Optimize with AI
+                                </button>
+                                <button type="button" id="sl-copy-btn" class="smartlist-btn smartlist-btn--outline">
+                                    <i data-lucide="copy" style="width:16px;height:16px;"></i> Copy List
+                                </button>
+                                <button type="button" id="sl-store-btn" class="smartlist-btn smartlist-btn--outline">
+                                    <i data-lucide="map-pin" style="width:16px;height:16px;"></i> Find in 3D Store
+                                </button>
+                            </div>
+                        </div>
+                        <div id="sl-stats" class="sl-stats-grid"></div>
+                        <div id="sl-content" style="margin-top:16px;">
+                            <div style="text-align:center; padding:60px 20px; color:#9ca3af;">
+                                <i data-lucide="loader" class="sl-loader-icon"></i>
+                                <p style="margin-top:12px;">Building your smart list...</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
                 <section id="view-supermarket" class="view-section">
                     <div id="supermarket-canvas-container" style="position:relative; width:100%; height:85vh; min-height:550px; border-radius:12px; overflow:hidden; background:#f5f0e8;">
 
                         <div style="position:absolute; top:0; left:0; right:0; z-index:5; padding:16px 20px; background:linear-gradient(to bottom, rgba(243,245,241,0.95) 0%, rgba(243,245,241,0.7) 70%, transparent 100%); pointer-events:none;">
                             <h2 style="margin:0 0 4px 0; font-family:'Outfit',sans-serif; font-weight:700; color:#132a13; pointer-events:auto;">Supermarket 3D</h2>
                             <p style="margin:0; color:#4a5c4a; font-size:0.9em;">Explore the store layout and plan a lower-carbon shopping route.</p>
+                        </div>
+
+                        <div id="sm-camera-mode" style="position:absolute; top:80px; left:50%; transform:translateX(-50%); z-index:15; display:flex; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); border-radius:12px; box-shadow:0 2px 16px rgba(0,0,0,0.1); overflow:hidden; pointer-events:auto;">
+                            <button type="button" id="sm-mode-overview" class="sm-mode-btn sm-mode-active" style="padding:10px 20px; border:none; background:transparent; cursor:pointer; font-family:'Outfit',sans-serif; font-weight:600; font-size:0.9em; color:#132a13; transition:all 0.2s;">
+                                🗺️ Overview
+                            </button>
+                            <button type="button" id="sm-mode-firstperson" class="sm-mode-btn" style="padding:10px 20px; border:none; background:transparent; cursor:pointer; font-family:'Outfit',sans-serif; font-weight:600; font-size:0.9em; color:#6b7280; transition:all 0.2s;">
+                                🚶 First Person
+                            </button>
                         </div>
 
                         <div id="sm-controls" style="position:absolute; top:80px; left:16px; z-index:10; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-radius:12px; padding:16px; box-shadow:0 2px 12px rgba(0,0,0,0.08); width:200px; max-height:calc(85vh - 120px); overflow-y:auto;">
@@ -480,6 +519,9 @@
                 </button>
                 <button type="button" class="mobile-tab-btn" data-view="history" aria-label="History">
                     <i data-lucide="history"></i>
+                </button>
+                <button type="button" class="mobile-tab-btn" data-view="smartlist" aria-label="Smart List">
+                    <i data-lucide="clipboard-list"></i>
                 </button>
                 <button type="button" class="mobile-tab-btn" data-view="supermarket" aria-label="3D Supermarket">
                     <i data-lucide="map-pin"></i>

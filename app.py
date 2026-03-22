@@ -12,6 +12,7 @@ import google.generativeai as genai
 from PIL import Image
 import uuid
 import random
+import hashlib
 from collections import defaultdict
 from sqlalchemy import text
 from supermarket_layout import (
@@ -466,7 +467,7 @@ def build_dashboard_stats(user):
     top_offenders = [
         {
             "item_name": a.item_name,
-            "brand": a.brand,
+            "brand": (a.brand or "").strip() or "Store Brand",
             "category": a.category or "Other",
             "kg_co2e": round(float(a.kg_co2e or 0), 2),
             "receipt_id": a.receipt_id or "",
@@ -505,7 +506,7 @@ def build_dashboard_stats(user):
     recent_list = [
         {
             "item_name": a.item_name,
-            "brand": a.brand,
+            "brand": (a.brand or "").strip() or "Store Brand",
             "category": a.category or "General",
             "kg_co2e": float(a.kg_co2e or 0),
         }
@@ -632,6 +633,35 @@ def award_points(user, action, metadata=None):
     return amount, user.points
 
 
+def _clean_display_name(raw: str | None) -> str | None:
+    if not raw or not str(raw).strip():
+        return None
+    s = str(raw).strip()
+    if "@" in s:
+        return None
+    return s
+
+
+def resolve_display_name(user: User, userinfo: dict | None = None) -> str:
+    """Human-readable name for UI; never use email as display name."""
+    if user:
+        n = _clean_display_name(user.name)
+        if n:
+            return n
+    if userinfo:
+        for key in ("name", "given_name", "nickname"):
+            v = userinfo.get(key)
+            cn = _clean_display_name(str(v) if v is not None else None)
+            if cn:
+                return cn
+    return "Jason"
+
+
+def leaderboard_display_name(u: User) -> str:
+    n = _clean_display_name(u.name)
+    return n if n else "Jason"
+
+
 def apply_daily_streak_on_page_visit(user):
     """
     Run on GET / for logged-in users. Updates streak_count / last_active_date (UTC) and awards streak points when the calendar day advances.
@@ -656,7 +686,7 @@ def apply_daily_streak_on_page_visit(user):
         award_points(user, "daily_streak", {"streak_count": 1})
 
 
-def user_snapshot_for_api(user):
+def user_snapshot_for_api(user, userinfo=None):
     dash = build_dashboard_stats(user)
     return {
         "points": dash["points"],
@@ -665,6 +695,7 @@ def user_snapshot_for_api(user):
         "total_co2": dash["total_co2"],
         "receipts_count": dash["receipts_count"],
         "level_name": level_name_from_points(dash["points"]),
+        "name": resolve_display_name(user, userinfo),
     }
 
 
@@ -675,13 +706,22 @@ def index():
     if user_info:
         # Check if user exists in local DB, if not create them
         user = User.query.filter_by(auth0_id=user_info['sub']).first()
+        auth_raw = (
+            user_info.get("name")
+            or user_info.get("given_name")
+            or user_info.get("nickname")
+        )
+        auth_name = _clean_display_name(str(auth_raw) if auth_raw is not None else None) or "Jason"
         if not user:
             user = User(
-                auth0_id=user_info['sub'],
-                name=user_info.get('name'),
-                email=user_info.get('email')
+                auth0_id=user_info["sub"],
+                name=auth_name,
+                email=user_info.get("email"),
             )
             db.session.add(user)
+            db.session.commit()
+        elif not _clean_display_name(user.name):
+            user.name = auth_name
             db.session.commit()
 
         apply_daily_streak_on_page_visit(user)
@@ -735,6 +775,7 @@ def index():
             "index.html",
             user=user_info,
             local_user=user,
+            display_name=resolve_display_name(user, user_info),
             sidebar_level_display=level_display_with_emoji(user.points),
             total_co2=total_co2,
             total_co2_saved=dash["total_co2_saved"],
@@ -798,7 +839,7 @@ def get_stats():
 
     user = User.query.filter_by(auth0_id=user_info['sub']).one()
     dash = build_dashboard_stats(user)
-    dash["name"] = user.name or user_info.get("name")
+    dash["name"] = resolve_display_name(user, user_info)
     return jsonify(dash)
 
 @app.route("/api/accept-swap", methods=["POST"])
@@ -832,7 +873,7 @@ def accept_swap():
     pa_mile, _ = award_points(user, "co2_milestone", {"crossings": cross})
     db.session.commit()
 
-    snap = user_snapshot_for_api(user)
+    snap = user_snapshot_for_api(user, user_info)
     snap["points_awarded"] = pa_swap + pa_mile
     return jsonify(snap)
 
@@ -860,7 +901,7 @@ def api_leaderboard():
             {
                 "rank": r,
                 "user_id": u.id,
-                "name": u.name or u.email or "Explorer",
+                "name": leaderboard_display_name(u),
                 "points": int(u.points or 0),
                 "level": lvl,
                 "level_emoji": _LEVEL_EMOJI.get(lvl, ""),
@@ -888,7 +929,7 @@ def api_leaderboard():
         points_to_next_rank = 0
         progress_to_next_pct = 100
     else:
-        next_rank_name = above.name or above.email or "Explorer"
+        next_rank_name = leaderboard_display_name(above)
         ap = int(above.points or 0)
         mp = int(me.points or 0)
         points_to_next_rank = max(0, ap - mp)
@@ -898,7 +939,7 @@ def api_leaderboard():
 
     current_user = {
         "rank": me_rank,
-        "name": me.name or me.email or "Explorer",
+        "name": leaderboard_display_name(me),
         "points": int(me.points or 0),
         "percentile": percentile,
         "next_rank_name": next_rank_name,
@@ -907,9 +948,7 @@ def api_leaderboard():
         "progress_to_next_pct": progress_to_next_pct,
     }
 
-    name_pool = [
-        (u.name or u.email or "Explorer") for _, u in ranked[:20] if (u.name or u.email)
-    ]
+    name_pool = [leaderboard_display_name(u) for _, u in ranked[:20]]
     random.shuffle(name_pool)
     weekly_movers = []
     for i in range(min(3, len(name_pool))):
@@ -927,9 +966,7 @@ def api_leaderboard():
         "total_co2_saved_all": round(total_saved_all, 2),
         "receipts_scanned_week": 347,
         "longest_streak_days": int(streak_leader.streak_count or 0),
-        "longest_streak_name": streak_leader.name
-        or streak_leader.email
-        or "Explorer",
+        "longest_streak_name": leaderboard_display_name(streak_leader),
     }
 
     return jsonify(
@@ -1101,10 +1138,17 @@ def _receipt_group_key(receipt_id):
 
 
 def _history_activity_summary(a):
+    item_name = a.item_name or "Item"
+    brand = (a.brand or "").strip() or "Store Brand"
     return {
-        "name": a.item_name or "Item",
+        "name": item_name,
+        "item_name": item_name,
+        "brand": brand,
         "category": a.category or "General",
         "kg_co2e": round(float(a.kg_co2e or 0), 2),
+        "quantity": float(a.quantity or 1),
+        "unit": getattr(a, "unit", None),
+        "price": getattr(a, "price", None),
     }
 
 
@@ -1112,7 +1156,7 @@ def _history_activity_detail(a):
     return {
         "id": a.id,
         "item_name": a.item_name or "Item",
-        "brand": a.brand,
+        "brand": (a.brand or "").strip() or "Store Brand",
         "category": a.category or "General",
         "quantity": float(a.quantity or 1),
         "unit": a.unit or "each",
@@ -1257,6 +1301,240 @@ def get_history_receipt_detail(receipt_key):
             "category_breakdown": category_breakdown,
         }
     )
+
+
+@app.route("/api/smart-list")
+def api_smart_list():
+    user_info = session.get("user")
+    if not user_info:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    user = User.query.filter_by(auth0_id=user_info["sub"]).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    activities = (
+        Activity.query.filter_by(user_id=user.id)
+        .order_by(Activity.timestamp.desc())
+        .all()
+    )
+
+    if not activities:
+        return jsonify(
+            {
+                "smart_list": [],
+                "by_category": {},
+                "stats": {
+                    "total_items": 0,
+                    "original_co2": 0,
+                    "optimized_co2": 0,
+                    "total_saved": 0,
+                    "swap_count": 0,
+                },
+                "message": "Upload some receipts first to generate your smart list!",
+            }
+        )
+
+    item_frequency = defaultdict(
+        lambda: {
+            "count": 0,
+            "item_name": "",
+            "brand": "",
+            "category": "",
+            "total_co2": 0.0,
+            "total_quantity": 0.0,
+            "unit": "",
+            "avg_price": None,
+            "last_purchased": None,
+            "activity_ids": [],
+        }
+    )
+
+    for act in activities:
+        key = (act.item_name or "").lower().strip()
+        if not key:
+            continue
+
+        entry = item_frequency[key]
+        entry["count"] += 1
+        entry["item_name"] = act.item_name or entry["item_name"]
+        if act.brand:
+            entry["brand"] = act.brand
+        if act.category:
+            entry["category"] = act.category
+        entry["total_co2"] += float(act.kg_co2e or 0)
+        entry["total_quantity"] += float(act.quantity or 1)
+        if act.unit:
+            entry["unit"] = act.unit
+        elif not entry["unit"]:
+            entry["unit"] = "each"
+        if act.price is not None and act.price > 0:
+            entry["avg_price"] = float(act.price)
+        ts = act.timestamp
+        if ts and (entry["last_purchased"] is None or ts > entry["last_purchased"]):
+            entry["last_purchased"] = ts
+        entry["activity_ids"].append(act.id)
+
+    for _key, entry in item_frequency.items():
+        c = max(entry["count"], 1)
+        entry["avg_co2"] = round(entry["total_co2"] / c, 2)
+        entry["avg_quantity"] = round(entry["total_quantity"] / c, 1)
+
+    user_activity_ids = [a.id for a in activities]
+    accepted_swaps = {}
+    if user_activity_ids:
+        swaps = Swap.query.filter(
+            Swap.activity_id.in_(user_activity_ids),
+            Swap.accepted.is_(True),
+        ).all()
+        for swap in swaps:
+            act = db.session.get(Activity, swap.activity_id)
+            if not act:
+                continue
+            ok = (act.item_name or "").lower().strip()
+            if not ok:
+                continue
+            accepted_swaps[ok] = {
+                "recommended_product": swap.recommended_product,
+                "recommended_brand": swap.recommended_brand,
+                "co2_savings": float(swap.co2_savings or 0),
+                "reason": swap.reason,
+                "aisle_location": swap.aisle_location,
+            }
+
+    smart_list = []
+    for key, entry in sorted(item_frequency.items(), key=lambda x: x[1]["count"], reverse=True):
+        if entry["count"] < 1:
+            continue
+
+        item_id = hashlib.md5(key.encode("utf-8")).hexdigest()[:16]
+        item = {
+            "id": item_id,
+            "item_name": entry["item_name"],
+            "brand": entry["brand"] or "",
+            "category": entry["category"] or "Other",
+            "times_purchased": entry["count"],
+            "avg_co2": entry["avg_co2"],
+            "avg_quantity": entry["avg_quantity"],
+            "unit": entry["unit"] or "each",
+            "avg_price": entry["avg_price"],
+            "last_purchased": entry["last_purchased"].strftime("%Y-%m-%d")
+            if entry["last_purchased"]
+            else None,
+            "is_regular": entry["count"] >= 2,
+            "swapped": False,
+            "swap_to": None,
+            "included": entry["count"] >= 2,
+        }
+
+        if key in accepted_swaps:
+            swap = accepted_swaps[key]
+            item["swapped"] = True
+            item["swap_to"] = {
+                "product": swap["recommended_product"],
+                "brand": swap["recommended_brand"],
+                "co2_savings": round(swap["co2_savings"], 4),
+                "reason": swap["reason"],
+                "aisle_location": swap["aisle_location"],
+            }
+            item["swapped_co2"] = round(
+                max(0.1, item["avg_co2"] - (swap["co2_savings"] or 0)), 2
+            )
+
+        smart_list.append(item)
+
+    regular_items = [i for i in smart_list if i["is_regular"]]
+    original_co2 = sum(i["avg_co2"] for i in regular_items)
+    optimized_co2 = sum(i.get("swapped_co2", i["avg_co2"]) for i in regular_items)
+    total_saved = round(original_co2 - optimized_co2, 2)
+
+    category_groups = defaultdict(list)
+    for item in smart_list:
+        category_groups[item["category"] or "Other"].append(item)
+
+    return jsonify(
+        {
+            "smart_list": smart_list,
+            "by_category": dict(category_groups),
+            "stats": {
+                "total_items": len(regular_items),
+                "original_co2": round(original_co2, 2),
+                "optimized_co2": round(optimized_co2, 2),
+                "total_saved": total_saved,
+                "swap_count": len([i for i in smart_list if i["swapped"]]),
+            },
+        }
+    )
+
+
+@app.route("/api/smart-list/optimize", methods=["POST"])
+def optimize_smart_list():
+    user_info = session.get("user")
+    if not user_info:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if model is None:
+        return jsonify({"error": "AI model unavailable", "suggestions": []}), 503
+
+    data = request.get_json(silent=True) or {}
+    items = data.get("items", [])
+    if not items:
+        return jsonify({"error": "No items to optimize"}), 400
+
+    unswapped = [i for i in items if not i.get("swapped")]
+    if not unswapped:
+        return jsonify({"suggestions": [], "message": "All items already optimized!"})
+
+    unswapped.sort(key=lambda x: float(x.get("avg_co2") or 0), reverse=True)
+    top_items = unswapped[:5]
+
+    items_text = "\n".join(
+        [
+            f"- {i.get('item_name', '')} ({i.get('brand') or 'unknown brand'}): "
+            f"{i.get('avg_co2', 0)} kg CO2e, category: {i.get('category') or 'Other'}"
+            for i in top_items
+        ]
+    )
+
+    prompt = f"""Given this user's regular grocery list items, suggest a better brand or variation for each that has lower carbon emissions.
+
+STRICT RULES:
+- ONLY suggest the SAME type of product with a different brand or variation
+- If someone buys chicken breast, suggest a different brand of chicken breast — NOT tofu
+- If someone buys whole milk, suggest a different brand of whole milk — NOT oat milk
+- Focus on: brands with better sustainability practices, local/regional brands, organic options, better sourcing
+- Include a real brand name for every recommendation
+- CO2 savings should be conservative (10-30% reduction, not 90%)
+
+Items to optimize:
+{items_text}
+
+Respond ONLY with valid JSON array (no markdown):
+[{{"original_product": "...", "original_brand": "...", "recommended_product": "...", "recommended_brand": "...", "co2_savings": 0.0, "reason": "brief reason", "aisle_location": "aisle name"}}]"""
+
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config={"response_mime_type": "application/json"},
+        )
+        text = (response.text or "").strip()
+        if text.startswith("```"):
+            parts = text.split("\n", 1)
+            text = parts[1] if len(parts) > 1 else text
+            text = text.rsplit("```", 1)[0].strip()
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            suggestions = parsed
+        elif isinstance(parsed, dict):
+            suggestions = parsed.get("suggestions") or parsed.get("items") or []
+            if not isinstance(suggestions, list):
+                suggestions = []
+        else:
+            suggestions = []
+        return jsonify({"suggestions": suggestions})
+    except Exception as e:
+        return jsonify({"error": str(e), "suggestions": []}), 500
+
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
@@ -1602,7 +1880,7 @@ def chat():
     level = _eco_level_from_points(user.points)
     points = int(user.points or 0)
 
-    system_prompt = f"""You are the EcoCart AI sustainability assistant. Help {user.name or 'the user'} reduce grocery-related carbon impact using the data below.
+    system_prompt = f"""You are the EcoCart AI sustainability assistant. Help {resolve_display_name(user, user_info)} reduce grocery-related carbon impact using the data below.
 
 User context:
 - EcoCart level: {level} (from EcoPoints: {points})
